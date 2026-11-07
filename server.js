@@ -985,7 +985,7 @@ function startServer(port) {
     console.log(`🎓 البوابة الرقمية لكلية العلوم والتكنولوجيا تعمل الآن:`);
     console.log(`   - المنفذ النشط (PORT)      : ${port}`);
     console.log(`   - مجلد الواجهة الأمامية    : ${activeStaticDir}/`);
-    console.log(`   - قاعدة البيانات المستمرة : SQLite (data/portal.sqlite)`);
+    console.log(`   - قاعدة البيانات المستمرة : JSON (db/faculty-db.json)`);
     console.log(`   - الرابط المحلي            : http://localhost:${port}/`);
     console.log(`=============================================================`);
 

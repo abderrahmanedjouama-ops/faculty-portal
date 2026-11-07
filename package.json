@@ -8,9 +8,6 @@
     "start": "node server.js",
     "dev": "node --watch server.js"
   },
-  "engines": {
-    "node": ">=22.5.0"
-  },
   "keywords": [
     "university",
     "portal",
@@ -22,6 +19,6 @@
   "license": "MIT",
   "dependencies": {
     "nodemailer": "^10.3.1",
-    "serverless-http": "^4.0.0"
+    "serverless-http": "^3.2.0"
   }
 }

@@ -1,13 +1,11 @@
 /**
- * طبقة قاعدة البيانات المستمرة (Persistent SQLite Database)
- * تستخدم محرك node:sqlite المدمج لتنفيذ جدولي:
- * 1. document_requests
- * 2. department_settings (محمل مسبقاً بالأقسام الـ 5)
+ * طبقة قاعدة البيانات المبنية على ملف JSON (Zero SQLite)
+ * تستخدم فقط مكتبات Node.js المدمجة (fs و path) لتخزين البيانات في:
+ * - /tmp/faculty-db.json (على منصة Netlify السحابية)
+ * - ./db/faculty-db.json (عند التشغيل المحلي)
  */
 
-const { DatabaseSync } = require('node:sqlite');
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 const {
@@ -16,7 +14,7 @@ const {
   buildRejectedEmailTemplate
 } = require('../services/emailService');
 
-function resolveWritableDbPath() {
+function resolveJsonDbPath() {
   const isServerless = Boolean(
     process.env.NETLIFY ||
       process.env.AWS_LAMBDA_FUNCTION_NAME ||
@@ -24,20 +22,13 @@ function resolveWritableDbPath() {
   );
 
   if (isServerless) {
-    return path.join(os.tmpdir(), 'portal.sqlite');
+    return '/tmp/faculty-db.json';
   }
 
-  const localDataDir = path.join(__dirname, '..', 'data');
-  try {
-    fs.mkdirSync(localDataDir, { recursive: true });
-    return path.join(localDataDir, 'portal.sqlite');
-  } catch {
-    return path.join(os.tmpdir(), 'portal.sqlite');
-  }
+  return path.join(__dirname, 'faculty-db.json');
 }
 
-const DB_PATH = resolveWritableDbPath();
-const SCHEMA_PATH = path.join(__dirname, 'schema.sql');
+const DB_FILE_PATH = resolveJsonDbPath();
 
 const DEPARTMENT_DEFINITIONS = [
   {
@@ -79,251 +70,22 @@ const DEPARTMENT_DEFINITIONS = [
 
 const EXACT_DEPARTMENTS = DEPARTMENT_DEFINITIONS.map(d => d.department_name);
 
-const db = new DatabaseSync(DB_PATH);
-
-db.exec('PRAGMA foreign_keys = ON;');
-db.exec('PRAGMA journal_mode = WAL;');
-
-// تنفيذ مخطط الجداول والفهارس من ملف schema.sql
-const schemaSql = fs.readFileSync(SCHEMA_PATH, 'utf8');
-db.exec(schemaSql);
-
-// ضمان توافق الجداول إذا كانت منشأة من إصدار سابق
-try {
-  db.exec('ALTER TABLE email_notifications ADD COLUMN sender_gmail TEXT NULL;');
-} catch {
-  // العمود موجود مسبقاً
-}
-try {
-  db.exec('ALTER TABLE department_settings ADD COLUMN slug TEXT NULL;');
-} catch {
-  // العمود موجود مسبقاً
-}
-try {
-  db.exec('ALTER TABLE department_settings ADD COLUMN username TEXT NULL;');
-} catch {
-  // العمود موجود مسبقاً
-}
-try {
-  db.exec('ALTER TABLE department_settings ADD COLUMN login_password TEXT NULL;');
-} catch {
-  // العمود موجود مسبقاً
-}
-
-/**
- * بذر جدول department_settings بالأقسام الـ 5 حصراً وبيانات الدخول الافتراضية
- */
-function seedDepartmentSettings() {
-  const checkStmt = db.prepare(
-    'SELECT * FROM department_settings WHERE department_name = ? LIMIT 1'
-  );
-  const insertStmt = db.prepare(`
-    INSERT INTO department_settings (
-      id, department_name, slug, username, login_password,
-      sender_gmail, gmail_app_password, is_configured, updated_at
-    ) VALUES (?, ?, ?, ?, ?, NULL, NULL, 0, ?)
-  `);
-  const backfillStmt = db.prepare(`
-    UPDATE department_settings
-    SET slug = COALESCE(slug, ?),
-        username = COALESCE(username, ?),
-        login_password = COALESCE(NULLIF(login_password, ''), ?)
-    WHERE department_name = ?
-  `);
-
+function buildInitialSeedStore() {
   const now = new Date().toISOString();
-  DEPARTMENT_DEFINITIONS.forEach(def => {
-    const existing = checkStmt.get(def.department_name);
-    if (!existing) {
-      insertStmt.run(
-        def.id,
-        def.department_name,
-        def.slug,
-        def.username,
-        def.default_password,
-        now
-      );
-    } else {
-      backfillStmt.run(def.slug, def.username, def.default_password, def.department_name);
-    }
-  });
-}
 
-seedDepartmentSettings();
+  const department_settings = DEPARTMENT_DEFINITIONS.map(def => ({
+    id: def.id,
+    department_name: def.department_name,
+    slug: def.slug,
+    username: def.username,
+    login_password: def.default_password,
+    sender_gmail: null,
+    gmail_app_password: null,
+    is_configured: 0,
+    updated_at: now
+  }));
 
-/**
- * توحيد كائن إعدادات القسم المُرجع من قاعدة البيانات
- */
-function normalizeDepartmentSettingRow(row) {
-  if (!row) return null;
-  const def =
-    DEPARTMENT_DEFINITIONS.find(d => d.department_name === row.department_name) || {};
-  const isConfigured = Boolean(
-    row.is_configured &&
-      row.sender_gmail &&
-      String(row.sender_gmail).trim() !== '' &&
-      row.gmail_app_password &&
-      normalizeAppPassword(row.gmail_app_password).length === 16
-  );
-
-  const slug = row.slug || def.slug || '';
-  const username = row.username || def.username || slug;
-  const loginPassword = row.login_password || def.default_password || '';
-
-  return {
-    id: row.id,
-    department_name: row.department_name,
-    slug,
-    username,
-    route: `/admin/${slug}`,
-    login_password: loginPassword,
-    default_password: def.default_password || loginPassword,
-    sender_gmail: row.sender_gmail || null,
-    gmail_app_password: row.gmail_app_password || null,
-    is_configured: isConfigured,
-    updated_at: row.updated_at
-  };
-}
-
-/**
- * استرجاع إعدادات جميع الأقسام الـ 5
- */
-function getAllDepartmentSettings() {
-  const rows = db.prepare('SELECT * FROM department_settings').all();
-  const mapByName = new Map(rows.map(r => [r.department_name, normalizeDepartmentSettingRow(r)]));
-  return EXACT_DEPARTMENTS.map(deptName => mapByName.get(deptName)).filter(Boolean);
-}
-
-/**
- * استرجاع إعدادات قسم محدد بالاسم أو المعرف (slug / username / department_name)
- */
-function getDepartmentSettings(identifier) {
-  const val = String(identifier || '').trim();
-  const row = db
-    .prepare(
-      'SELECT * FROM department_settings WHERE department_name = ? OR LOWER(slug) = LOWER(?) OR LOWER(username) = LOWER(?) LIMIT 1'
-    )
-    .get(val, val, val);
-  return normalizeDepartmentSettingRow(row);
-}
-
-/**
- * التحقق من بيانات تسجيل الدخول للقسم (اسم المستخدم/القسم + كلمة المرور)
- */
-function verifyDepartmentCredentials(identifier, password) {
-  const dept = getDepartmentSettings(identifier);
-  if (!dept) return null;
-  const cleanInputPass = String(password || '').trim();
-  if (!cleanInputPass || cleanInputPass !== dept.login_password) {
-    return null;
-  }
-  return dept;
-}
-
-/**
- * حفظ وتحديث إعدادات القسم (البريد الإلكتروني + رمز تطبيق جوجل + كلمة مرور الدخول)
- */
-function updateDepartmentSettings(
-  identifier,
-  { sender_gmail, gmail_app_password, login_password }
-) {
-  const existing = getDepartmentSettings(identifier);
-  if (!existing) {
-    throw new Error('القسم المحدد غير موجود في جدول department_settings.');
-  }
-
-  const nextEmail =
-    sender_gmail !== undefined
-      ? String(sender_gmail || '').trim().toLowerCase() || null
-      : existing.sender_gmail;
-  const nextAppPass =
-    gmail_app_password !== undefined
-      ? normalizeAppPassword(gmail_app_password) || null
-      : existing.gmail_app_password;
-  const nextLoginPass =
-    login_password !== undefined && String(login_password).trim() !== ''
-      ? String(login_password).trim()
-      : existing.login_password;
-
-  const isConfigured = Boolean(nextEmail && nextAppPass && nextAppPass.length === 16) ? 1 : 0;
-  const updatedAt = new Date().toISOString();
-
-  db.prepare(`
-    UPDATE department_settings
-    SET sender_gmail = ?,
-        gmail_app_password = ?,
-        login_password = ?,
-        is_configured = ?,
-        updated_at = ?
-    WHERE department_name = ?
-  `).run(nextEmail, nextAppPass, nextLoginPass, isConfigured, updatedAt, existing.department_name);
-
-  return getDepartmentSettings(existing.department_name);
-}
-
-/**
- * توليد كود تتبع قصير وفريد بصيغة REQ-XXXX
- */
-function generateUniqueTrackingCode() {
-  const checkStmt = db.prepare('SELECT 1 FROM document_requests WHERE tracking_code = ?');
-  for (let attempt = 0; attempt < 25; attempt++) {
-    const code = `REQ-${Math.floor(1000 + Math.random() * 9000)}`;
-    const exists = checkStmt.get(code);
-    if (!exists) return code;
-  }
-  return `REQ-${Date.now().toString().slice(-5)}`;
-}
-
-/**
- * توحيد كائن الطلب المُرجع من قاعدة البيانات
- */
-function normalizeRequestRow(row) {
-  if (!row) return null;
-  return {
-    id: row.id,
-    tracking_code: row.tracking_code,
-    first_name: row.first_name,
-    last_name: row.last_name,
-    student_card_number: row.student_card_number,
-    email: row.email,
-    department: row.department,
-    bac_year: row.bac_year,
-    document_type: row.document_type,
-    degree_level: row.degree_level ?? null,
-    requested_year: row.requested_year ?? null,
-    academic_year: row.academic_year ?? null,
-    status: row.status,
-    rejection_reason: row.rejection_reason ?? null,
-    created_at: row.created_at,
-
-    // مرادفات متوافقة مع الواجهة الأمامية
-    trackingCode: row.tracking_code,
-    firstName: row.first_name,
-    lastName: row.last_name,
-    studentCardNumber: row.student_card_number,
-    bacYear: row.bac_year,
-    documentType: row.document_type,
-    degreeLevel: row.degree_level ?? null,
-    requestedYear: row.requested_year ?? null,
-    academicYear: row.academic_year ?? null,
-    rejectionReason: row.rejection_reason ?? '',
-    createdAt: row.created_at,
-    conditionalDetails: {
-      cycle: row.degree_level ?? null,
-      targetYear: row.requested_year ?? null,
-      academicYear: row.academic_year ?? null
-    }
-  };
-}
-
-/**
- * بذر البيانات الأولية في جدول document_requests إذا كان فارغاً
- */
-function seedInitialDataIfEmpty() {
-  const countRow = db.prepare('SELECT COUNT(*) AS count FROM document_requests').get();
-  if (countRow && countRow.count > 0) return;
-
-  const initialRows = [
+  const document_requests = [
     {
       id: 'b401189e-7a1c-4c51-8e62-110000000001',
       tracking_code: 'REQ-4821',
@@ -445,229 +207,404 @@ function seedInitialDataIfEmpty() {
     }
   ];
 
-  const insertStmt = db.prepare(`
-    INSERT INTO document_requests (
-      id, tracking_code, first_name, last_name, student_card_number,
-      email, department, bac_year, document_type,
-      degree_level, requested_year, academic_year,
-      status, rejection_reason, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-
-  const insertNotifStmt = db.prepare(`
-    INSERT INTO email_notifications (
-      id, request_id, tracking_code, sender_gmail, recipient_email, student_name,
-      document_type, department, notification_type,
-      subject, html_body, text_body, delivery_status, provider, sent_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-
-  for (const r of initialRows) {
-    insertStmt.run(
-      r.id,
-      r.tracking_code,
-      r.first_name,
-      r.last_name,
-      r.student_card_number,
-      r.email,
-      r.department,
-      r.bac_year,
-      r.document_type,
-      r.degree_level,
-      r.requested_year,
-      r.academic_year,
-      r.status,
-      r.rejection_reason,
-      r.created_at
-    );
-
+  const email_notifications = [];
+  for (const r of document_requests) {
     if (r.status === 'ready' || r.status === 'rejected') {
       const tpl =
         r.status === 'ready' ? buildReadyEmailTemplate(r) : buildRejectedEmailTemplate(r);
-      insertNotifStmt.run(
-        crypto.randomUUID(),
-        r.id,
-        r.tracking_code,
-        'pedagogy.dept@gmail.com',
-        r.email,
-        `${r.first_name} ${r.last_name}`,
-        r.document_type,
-        r.department,
-        r.status,
-        tpl.subject,
-        tpl.htmlBody,
-        tpl.textBody,
-        'sent',
-        'nodemailer-gmail-smtp',
-        r.created_at
-      );
+      email_notifications.push({
+        id: crypto.randomUUID(),
+        request_id: r.id,
+        tracking_code: r.tracking_code,
+        sender_gmail: 'pedagogy.dept@gmail.com',
+        recipient_email: r.email,
+        student_name: `${r.first_name} ${r.last_name}`,
+        document_type: r.document_type,
+        department: r.department,
+        notification_type: r.status,
+        subject: tpl.subject,
+        html_body: tpl.htmlBody,
+        text_body: tpl.textBody,
+        delivery_status: 'sent',
+        provider: 'nodemailer-gmail-smtp',
+        sent_at: r.created_at
+      });
     }
+  }
+
+  return {
+    department_settings,
+    document_requests,
+    email_notifications
+  };
+}
+
+let memoryStore = null;
+
+function readStore() {
+  try {
+    if (fs.existsSync(DB_FILE_PATH)) {
+      const raw = fs.readFileSync(DB_FILE_PATH, 'utf8');
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        ensureDepartmentsInStore(parsed);
+        memoryStore = parsed;
+        return parsed;
+      }
+    }
+  } catch {
+    // في حال تعذر القراءة نستخدم البيانات الأولية
+  }
+
+  if (!memoryStore) {
+    memoryStore = buildInitialSeedStore();
+    writeStore(memoryStore);
+  }
+  return memoryStore;
+}
+
+function writeStore(store) {
+  memoryStore = store;
+  try {
+    const dir = path.dirname(DB_FILE_PATH);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(DB_FILE_PATH, JSON.stringify(store, null, 2), 'utf8');
+  } catch {
+    // الاحتفاظ بنسخة الذاكرة إذا كانت الكتابة غير متاحة مؤقتاً
   }
 }
 
-seedInitialDataIfEmpty();
+function ensureDepartmentsInStore(store) {
+  if (!Array.isArray(store.department_settings)) {
+    store.department_settings = [];
+  }
+  if (!Array.isArray(store.document_requests)) {
+    store.document_requests = [];
+  }
+  if (!Array.isArray(store.email_notifications)) {
+    store.email_notifications = [];
+  }
 
-/**
- * استرجاع الطلبات مع الفلترة
- */
+  const now = new Date().toISOString();
+  DEPARTMENT_DEFINITIONS.forEach(def => {
+    const existing = store.department_settings.find(
+      d => d.department_name === def.department_name
+    );
+    if (!existing) {
+      store.department_settings.push({
+        id: def.id,
+        department_name: def.department_name,
+        slug: def.slug,
+        username: def.username,
+        login_password: def.default_password,
+        sender_gmail: null,
+        gmail_app_password: null,
+        is_configured: 0,
+        updated_at: now
+      });
+    } else {
+      existing.slug = existing.slug || def.slug;
+      existing.username = existing.username || def.username;
+      existing.login_password = existing.login_password || def.default_password;
+    }
+  });
+}
+
+// تهيئة قاعدة البيانات عند بدء التشغيل
+readStore();
+
+function normalizeDepartmentSettingRow(row) {
+  if (!row) return null;
+  const def =
+    DEPARTMENT_DEFINITIONS.find(d => d.department_name === row.department_name) || {};
+  const isConfigured = Boolean(
+    row.is_configured &&
+      row.sender_gmail &&
+      String(row.sender_gmail).trim() !== '' &&
+      row.gmail_app_password &&
+      normalizeAppPassword(row.gmail_app_password).length === 16
+  );
+
+  const slug = row.slug || def.slug || '';
+  const username = row.username || def.username || slug;
+  const loginPassword = row.login_password || def.default_password || '';
+
+  return {
+    id: row.id,
+    department_name: row.department_name,
+    slug,
+    username,
+    route: `/admin/${slug}`,
+    login_password: loginPassword,
+    default_password: def.default_password || loginPassword,
+    sender_gmail: row.sender_gmail || null,
+    gmail_app_password: row.gmail_app_password || null,
+    is_configured: isConfigured,
+    updated_at: row.updated_at
+  };
+}
+
+function getAllDepartmentSettings() {
+  const store = readStore();
+  const mapByName = new Map(
+    store.department_settings.map(r => [r.department_name, normalizeDepartmentSettingRow(r)])
+  );
+  return EXACT_DEPARTMENTS.map(deptName => mapByName.get(deptName)).filter(Boolean);
+}
+
+function getDepartmentSettings(identifier) {
+  const val = String(identifier || '').trim().toLowerCase();
+  if (!val) return null;
+  const store = readStore();
+  const row = store.department_settings.find(
+    r =>
+      r.department_name === identifier ||
+      String(r.department_name || '').toLowerCase() === val ||
+      String(r.slug || '').toLowerCase() === val ||
+      String(r.username || '').toLowerCase() === val
+  );
+  return normalizeDepartmentSettingRow(row);
+}
+
+function verifyDepartmentCredentials(identifier, password) {
+  const dept = getDepartmentSettings(identifier);
+  if (!dept) return null;
+  const cleanInputPass = String(password || '').trim();
+  if (!cleanInputPass || cleanInputPass !== dept.login_password) {
+    return null;
+  }
+  return dept;
+}
+
+function updateDepartmentSettings(
+  identifier,
+  { sender_gmail, gmail_app_password, login_password }
+) {
+  const store = readStore();
+  const val = String(identifier || '').trim().toLowerCase();
+  const row = store.department_settings.find(
+    r =>
+      r.department_name === identifier ||
+      String(r.department_name || '').toLowerCase() === val ||
+      String(r.slug || '').toLowerCase() === val ||
+      String(r.username || '').toLowerCase() === val
+  );
+
+  if (!row) {
+    throw new Error('القسم المحدد غير موجود في جدول department_settings.');
+  }
+
+  const nextEmail =
+    sender_gmail !== undefined
+      ? String(sender_gmail || '').trim().toLowerCase() || null
+      : row.sender_gmail;
+  const nextAppPass =
+    gmail_app_password !== undefined
+      ? normalizeAppPassword(gmail_app_password) || null
+      : row.gmail_app_password;
+  const nextLoginPass =
+    login_password !== undefined && String(login_password).trim() !== ''
+      ? String(login_password).trim()
+      : row.login_password;
+
+  row.sender_gmail = nextEmail;
+  row.gmail_app_password = nextAppPass;
+  row.login_password = nextLoginPass;
+  row.is_configured = Boolean(nextEmail && nextAppPass && nextAppPass.length === 16) ? 1 : 0;
+  row.updated_at = new Date().toISOString();
+
+  writeStore(store);
+  return normalizeDepartmentSettingRow(row);
+}
+
+function generateUniqueTrackingCode(store) {
+  const existingCodes = new Set(
+    (store.document_requests || []).map(r => String(r.tracking_code || '').toUpperCase())
+  );
+  for (let attempt = 0; attempt < 25; attempt++) {
+    const code = `REQ-${Math.floor(1000 + Math.random() * 9000)}`;
+    if (!existingCodes.has(code)) return code;
+  }
+  return `REQ-${Date.now().toString().slice(-5)}`;
+}
+
+function normalizeRequestRow(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    tracking_code: row.tracking_code,
+    first_name: row.first_name,
+    last_name: row.last_name,
+    student_card_number: row.student_card_number,
+    email: row.email,
+    department: row.department,
+    bac_year: row.bac_year,
+    document_type: row.document_type,
+    degree_level: row.degree_level ?? null,
+    requested_year: row.requested_year ?? null,
+    academic_year: row.academic_year ?? null,
+    status: row.status,
+    rejection_reason: row.rejection_reason ?? null,
+    created_at: row.created_at,
+
+    trackingCode: row.tracking_code,
+    firstName: row.first_name,
+    lastName: row.last_name,
+    studentCardNumber: row.student_card_number,
+    bacYear: row.bac_year,
+    documentType: row.document_type,
+    degreeLevel: row.degree_level ?? null,
+    requestedYear: row.requested_year ?? null,
+    academicYear: row.academic_year ?? null,
+    rejectionReason: row.rejection_reason ?? '',
+    createdAt: row.created_at,
+    conditionalDetails: {
+      cycle: row.degree_level ?? null,
+      targetYear: row.requested_year ?? null,
+      academicYear: row.academic_year ?? null
+    }
+  };
+}
+
 function getAllRequests(filters = {}) {
   const { department, studentCardNumber, search, status } = filters;
-  const conditions = [];
-  const params = [];
+  const store = readStore();
+  let rows = [...(store.document_requests || [])];
 
   if (department && department !== 'all') {
-    conditions.push('department = ?');
-    params.push(department);
+    rows = rows.filter(r => r.department === department);
   }
 
   if (studentCardNumber) {
-    const val = String(studentCardNumber).trim();
-    conditions.push(
-      '(LOWER(student_card_number) = LOWER(?) OR LOWER(tracking_code) = LOWER(?) OR LOWER(id) = LOWER(?))'
+    const val = String(studentCardNumber).trim().toLowerCase();
+    rows = rows.filter(
+      r =>
+        String(r.student_card_number || '').toLowerCase() === val ||
+        String(r.tracking_code || '').toLowerCase() === val ||
+        String(r.id || '').toLowerCase() === val
     );
-    params.push(val, val, val);
   }
 
   if (status && status !== 'all') {
-    conditions.push('status = ?');
-    params.push(status);
+    rows = rows.filter(r => r.status === status);
   }
 
   if (search) {
-    const q = `%${String(search).trim()}%`;
-    conditions.push(
-      "(student_card_number LIKE ? OR first_name LIKE ? OR last_name LIKE ? OR (first_name || ' ' || last_name) LIKE ? OR tracking_code LIKE ?)"
-    );
-    params.push(q, q, q, q, q);
+    const q = String(search).trim().toLowerCase();
+    rows = rows.filter(r => {
+      const fullName = `${r.first_name || ''} ${r.last_name || ''}`.toLowerCase();
+      return (
+        String(r.student_card_number || '').toLowerCase().includes(q) ||
+        String(r.first_name || '').toLowerCase().includes(q) ||
+        String(r.last_name || '').toLowerCase().includes(q) ||
+        fullName.includes(q) ||
+        String(r.tracking_code || '').toLowerCase().includes(q)
+      );
+    });
   }
 
-  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-  const sql = `SELECT * FROM document_requests ${whereClause} ORDER BY datetime(created_at) DESC`;
-
-  const rows = db.prepare(sql).all(...params);
+  rows.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
   return rows.map(normalizeRequestRow);
 }
 
-/**
- * التحقق من وجود طلب نشط (pending) لنفس الرقم التسلسلي ونفس نوع الوثيقة
- */
 function findActivePendingDuplicate(studentCardNumber, documentType) {
-  const stmt = db.prepare(`
-    SELECT * FROM document_requests
-    WHERE LOWER(student_card_number) = LOWER(?)
-      AND document_type = ?
-      AND status = 'pending'
-    LIMIT 1
-  `);
-  const row = stmt.get(String(studentCardNumber).trim(), String(documentType).trim());
-  return normalizeRequestRow(row);
+  const store = readStore();
+  const cardVal = String(studentCardNumber || '').trim().toLowerCase();
+  const docVal = String(documentType || '').trim();
+
+  const found = (store.document_requests || []).find(
+    r =>
+      String(r.student_card_number || '').trim().toLowerCase() === cardVal &&
+      r.document_type === docVal &&
+      r.status === 'pending'
+  );
+  return normalizeRequestRow(found);
 }
 
-/**
- * إنشاء طلب وثيقة جديد في جدول document_requests
- */
 function createDocumentRequest(payload) {
+  const store = readStore();
   const id = crypto.randomUUID();
-  const trackingCode = generateUniqueTrackingCode();
+  const trackingCode = generateUniqueTrackingCode(store);
   const createdAt = new Date().toISOString();
 
-  const stmt = db.prepare(`
-    INSERT INTO document_requests (
-      id, tracking_code, first_name, last_name, student_card_number,
-      email, department, bac_year, document_type,
-      degree_level, requested_year, academic_year,
-      status, rejection_reason, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NULL, ?)
-  `);
-
-  stmt.run(
+  const newRow = {
     id,
-    trackingCode,
-    payload.first_name,
-    payload.last_name,
-    payload.student_card_number,
-    payload.email,
-    payload.department,
-    payload.bac_year,
-    payload.document_type,
-    payload.degree_level ?? null,
-    payload.requested_year ?? null,
-    payload.academic_year ?? null,
-    createdAt
-  );
+    tracking_code: trackingCode,
+    first_name: payload.first_name,
+    last_name: payload.last_name,
+    student_card_number: payload.student_card_number,
+    email: payload.email,
+    department: payload.department,
+    bac_year: payload.bac_year,
+    document_type: payload.document_type,
+    degree_level: payload.degree_level ?? null,
+    requested_year: payload.requested_year ?? null,
+    academic_year: payload.academic_year ?? null,
+    status: 'pending',
+    rejection_reason: null,
+    created_at: createdAt
+  };
 
-  const inserted = db.prepare('SELECT * FROM document_requests WHERE id = ?').get(id);
-  return normalizeRequestRow(inserted);
+  store.document_requests.unshift(newRow);
+  writeStore(store);
+  return normalizeRequestRow(newRow);
 }
 
-/**
- * البحث عن طلب بواسطة UUID أو tracking_code
- */
 function getRequestByIdOrTracking(identifier) {
-  const stmt = db.prepare(`
-    SELECT * FROM document_requests
-    WHERE id = ? OR tracking_code = ?
-    LIMIT 1
-  `);
-  const row = stmt.get(identifier, identifier);
+  const store = readStore();
+  const val = String(identifier || '').trim();
+  const row = (store.document_requests || []).find(
+    r => r.id === val || r.tracking_code === val
+  );
   return normalizeRequestRow(row);
 }
 
-/**
- * تحديث حالة الطلب (ready أو rejected أو pending)
- */
 function updateRequestStatus(identifier, { status, rejectionReason = null }) {
-  const existing = getRequestByIdOrTracking(identifier);
-  if (!existing) return null;
-
-  const cleanReason = status === 'rejected' ? String(rejectionReason || '').trim() : null;
-
-  db.prepare(`
-    UPDATE document_requests
-    SET status = ?, rejection_reason = ?
-    WHERE id = ?
-  `).run(status, cleanReason, existing.id);
-
-  return getRequestByIdOrTracking(existing.id);
-}
-
-/**
- * حفظ إشعار البريد الإلكتروني في جدول email_notifications
- */
-function saveEmailNotification(notif) {
-  db.prepare(`
-    INSERT INTO email_notifications (
-      id, request_id, tracking_code, sender_gmail, recipient_email, student_name,
-      document_type, department, notification_type,
-      subject, html_body, text_body, delivery_status, provider, sent_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    notif.id,
-    notif.request_id ?? null,
-    notif.tracking_code ?? null,
-    notif.sender_gmail ?? null,
-    notif.recipient_email,
-    notif.student_name,
-    notif.document_type,
-    notif.department,
-    notif.notification_type,
-    notif.subject,
-    notif.html_body,
-    notif.text_body,
-    notif.delivery_status,
-    notif.provider,
-    notif.sent_at
+  const store = readStore();
+  const val = String(identifier || '').trim();
+  const row = (store.document_requests || []).find(
+    r => r.id === val || r.tracking_code === val
   );
-  return notif;
+  if (!row) return null;
+
+  row.status = status;
+  row.rejection_reason = status === 'rejected' ? String(rejectionReason || '').trim() : null;
+
+  writeStore(store);
+  return normalizeRequestRow(row);
 }
 
-/**
- * استرجاع سجل الإشعارات البريدية المرسلة
- */
+function saveEmailNotification(notif) {
+  const store = readStore();
+  const record = {
+    id: notif.id || crypto.randomUUID(),
+    request_id: notif.request_id ?? null,
+    tracking_code: notif.tracking_code ?? null,
+    sender_gmail: notif.sender_gmail ?? null,
+    recipient_email: notif.recipient_email,
+    student_name: notif.student_name,
+    document_type: notif.document_type,
+    department: notif.department,
+    notification_type: notif.notification_type,
+    subject: notif.subject,
+    html_body: notif.html_body,
+    text_body: notif.text_body,
+    delivery_status: notif.delivery_status,
+    provider: notif.provider,
+    sent_at: notif.sent_at || new Date().toISOString()
+  };
+
+  store.email_notifications.unshift(record);
+  writeStore(store);
+  return record;
+}
+
 function getAllNotifications() {
-  const rows = db
-    .prepare('SELECT * FROM email_notifications ORDER BY datetime(sent_at) DESC')
-    .all();
+  const store = readStore();
+  const rows = [...(store.email_notifications || [])];
+  rows.sort((a, b) => new Date(b.sent_at) - new Date(a.sent_at));
 
   return rows.map(r => ({
     ...r,
@@ -685,8 +622,7 @@ function getAllNotifications() {
 }
 
 module.exports = {
-  db,
-  DEPARTMENT_DEFINITIONS,
+  EXACT_DEPARTMENTS,
   getAllRequests,
   findActivePendingDuplicate,
   createDocumentRequest,
