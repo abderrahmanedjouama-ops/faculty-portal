@@ -1,13 +1,36 @@
 /**
  * منطق صفحة تسجيل الدخول (/login)
+ * يربط حدث الإرسال (submit) فوراً وبشكل متزامن لمنع المتصفح من إرسال استمارة GET تقليدية،
+ * ويدعم المصادقة الفورية عبر Firebase Realtime Database والخادم والنسخة الاحتياطية للأقسام الخمسة.
  */
 
-document.addEventListener('DOMContentLoaded', async () => {
-  DataRepository.initLocalStore();
+let isLoginEventsBound = false;
+
+function initLoginPage() {
+  if (typeof DataRepository !== 'undefined') {
+    DataRepository.initLocalStore();
+  }
+
+  // 1. ربط أحداث الاستمارة فوراً وبشكل متزامن قبل أي عملية غير متزامنة (await)
+  bindLoginEvents();
 
   const urlParams = new URLSearchParams(window.location.search);
   const redirectParam = urlParams.get('redirect');
   const loggedOut = urlParams.get('logged_out');
+  const urlUsername = (urlParams.get('username') || '').trim();
+  const urlPassword = (urlParams.get('password') || '').trim();
+
+  // 2. إذا كان الرابط يحتوي مسبقاً على ?username=...&password=... نقوم بتسجيل الدخول فوراً وتنظيف الرابط
+  if (urlUsername && urlPassword) {
+    const usernameInput = document.getElementById('loginUsernameInput');
+    const passwordInput = document.getElementById('loginPasswordInput');
+    if (usernameInput) usernameInput.value = urlUsername;
+    if (passwordInput) passwordInput.value = urlPassword;
+
+    window.history.replaceState({}, document.title, '/login');
+    executeDepartmentLogin(urlUsername, urlPassword);
+    return;
+  }
 
   if (redirectParam && !loggedOut) {
     const notice = document.getElementById('loginRedirectNotice');
@@ -18,22 +41,34 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  if (!loggedOut) {
-    const activeSession = await DataRepository.getAuthSession();
-    if (activeSession && activeSession.slug) {
-      window.location.replace(`/admin/${activeSession.slug}`);
-      return;
-    }
+  if (!loggedOut && typeof DataRepository !== 'undefined') {
+    DataRepository.getAuthSession()
+      .then(activeSession => {
+        if (activeSession && activeSession.slug) {
+          window.location.replace(`/admin/${activeSession.slug}`);
+        }
+      })
+      .catch(() => {});
   }
+}
 
-  bindLoginEvents();
-});
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initLoginPage);
+} else {
+  initLoginPage();
+}
 
 function bindLoginEvents() {
+  if (isLoginEventsBound) return;
+
   const usernameInput = document.getElementById('loginUsernameInput');
   const passwordInput = document.getElementById('loginPasswordInput');
   const togglePassBtn = document.getElementById('toggleLoginPassBtn');
   const loginForm = document.getElementById('departmentLoginForm');
+  const submitBtn = document.getElementById('loginSubmitBtn');
+
+  if (!loginForm) return;
+  isLoginEventsBound = true;
 
   if (usernameInput) {
     usernameInput.addEventListener('input', hideLoginError);
@@ -44,15 +79,21 @@ function bindLoginEvents() {
   }
 
   if (togglePassBtn && passwordInput) {
-    togglePassBtn.addEventListener('click', () => {
+    togglePassBtn.addEventListener('click', e => {
+      e.preventDefault();
       const isHidden = passwordInput.type === 'password';
       passwordInput.type = isHidden ? 'text' : 'password';
       togglePassBtn.textContent = isHidden ? 'إخفاء' : 'إظهار';
     });
   }
 
-  if (loginForm) {
-    loginForm.addEventListener('submit', handleLoginSubmit);
+  loginForm.addEventListener('submit', handleLoginSubmit);
+
+  if (submitBtn) {
+    submitBtn.addEventListener('click', e => {
+      e.preventDefault();
+      handleLoginSubmit(e);
+    });
   }
 }
 
@@ -71,12 +112,13 @@ function hideLoginError() {
 }
 
 async function handleLoginSubmit(e) {
-  e.preventDefault();
+  if (e && typeof e.preventDefault === 'function') {
+    e.preventDefault();
+  }
   hideLoginError();
 
   const usernameInput = document.getElementById('loginUsernameInput');
   const passwordInput = document.getElementById('loginPasswordInput');
-  const submitBtn = document.getElementById('loginSubmitBtn');
 
   const identifier = usernameInput ? usernameInput.value.trim() : '';
   const password = passwordInput ? passwordInput.value.trim() : '';
@@ -93,7 +135,12 @@ async function handleLoginSubmit(e) {
     return;
   }
 
-  const originalHtml = submitBtn ? submitBtn.innerHTML : '';
+  await executeDepartmentLogin(identifier, password);
+}
+
+async function executeDepartmentLogin(identifier, password) {
+  const submitBtn = document.getElementById('loginSubmitBtn');
+  const originalHtml = submitBtn ? submitBtn.innerHTML : '<span>تسجيل الدخول</span>';
 
   try {
     if (submitBtn) {

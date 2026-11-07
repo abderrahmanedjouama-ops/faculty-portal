@@ -1,9 +1,8 @@
 /**
- * طبقة قاعدة البيانات السحابية المستمرة (Cloud JSON Store + /tmp Cache - Zero SQLite)
- * تستخدم مكتبات Node.js المدمجة فقط (fs, path, https, crypto) لتخزين البيانات:
- * 1. سحابياً بشكل تلقائي ودائم عبر مخزن JSON السحابي (بدون مفاتيح API أو حسابات خارجية)
- *    لضمان بقاء الطلبات وإعدادات الأقسام عبر مختلف الأجهزة والمتصفحات وإعادات تشغيل Netlify.
- * 2. محلياً في /tmp/faculty-db.json (على Netlify) أو ./db/faculty-db.json (عند التشغيل المحلي) كذاكرة فورية.
+ * طبقة قاعدة البيانات السحابية المستمرة عبر Firebase Realtime Database + ذاكرة /tmp (Zero SQLite)
+ * تتصل مباشرة بقاعدة بيانات Firebase Realtime Database عبر واجهة REST القياسية:
+ *   https://faculty-portal-6148c-default-rtdb.europe-west1.firebasedatabase.app
+ * وتحتفظ بنسخة محلية سريعة في /tmp/faculty-db.json (على Netlify) أو ./db/faculty-db.json (محلياً).
  */
 
 const fs = require('fs');
@@ -15,6 +14,11 @@ const {
   buildReadyEmailTemplate,
   buildRejectedEmailTemplate
 } = require('../services/emailService');
+
+const FIREBASE_DB_URL = (
+  process.env.FIREBASE_DB_URL ||
+  'https://faculty-portal-6148c-default-rtdb.europe-west1.firebasedatabase.app'
+).replace(/\/+$/, '');
 
 function resolveJsonDbPath() {
   const isServerless = Boolean(
@@ -31,11 +35,6 @@ function resolveJsonDbPath() {
 }
 
 const DB_FILE_PATH = resolveJsonDbPath();
-
-// قناة التخزين السحابي الدائم (تعمل تلقائياً بدون مفاتيح أو تسجيل)
-const CLOUD_STORE_TOPIC =
-  process.env.FACULTY_CLOUD_TOPIC || 'fst_biskra_portal_cloud_db_2026_v1';
-const CLOUD_STORE_HOST = 'ntfy.sh';
 
 const DEPARTMENT_DEFINITIONS = [
   {
@@ -85,7 +84,9 @@ function buildInitialSeedStore() {
     department_name: def.department_name,
     slug: def.slug,
     username: def.username,
+    route: `/admin/${def.slug}`,
     login_password: def.default_password,
+    default_password: def.default_password,
     sender_gmail: null,
     gmail_app_password: null,
     is_configured: 0,
@@ -220,7 +221,7 @@ function buildInitialSeedStore() {
       const tpl =
         r.status === 'ready' ? buildReadyEmailTemplate(r) : buildRejectedEmailTemplate(r);
       email_notifications.push({
-        id: crypto.randomUUID(),
+        id: `notif-${r.tracking_code.toLowerCase()}`,
         request_id: r.id,
         tracking_code: r.tracking_code,
         sender_gmail: 'pedagogy.dept@gmail.com',
@@ -242,8 +243,7 @@ function buildInitialSeedStore() {
   return {
     department_settings,
     document_requests,
-    email_notifications,
-    last_cloud_sync_at: 0
+    email_notifications
   };
 }
 
@@ -299,7 +299,7 @@ function ensureDepartmentsInStore(store) {
   const now = new Date().toISOString();
   DEPARTMENT_DEFINITIONS.forEach(def => {
     const existing = store.department_settings.find(
-      d => d.department_name === def.department_name
+      d => d.department_name === def.department_name || d.slug === def.slug
     );
     if (!existing) {
       store.department_settings.push({
@@ -307,188 +307,208 @@ function ensureDepartmentsInStore(store) {
         department_name: def.department_name,
         slug: def.slug,
         username: def.username,
+        route: `/admin/${def.slug}`,
         login_password: def.default_password,
+        default_password: def.default_password,
         sender_gmail: null,
         gmail_app_password: null,
         is_configured: 0,
         updated_at: now
       });
     } else {
-      existing.slug = existing.slug || def.slug;
-      existing.username = existing.username || def.username;
+      existing.id = existing.id || def.id;
+      existing.department_name = def.department_name;
+      existing.slug = def.slug;
+      existing.username = def.username;
+      existing.route = `/admin/${def.slug}`;
+      existing.default_password = def.default_password;
       existing.login_password = existing.login_password || def.default_password;
     }
   });
 }
 
 /**
- * تطبيق حدث سحابي واحد (Delta Event) على قاعدة البيانات المحلية
+ * دالة اتصال مباشر بـ Firebase Realtime Database عبر مكتبة https المدمجة
  */
-function applyCloudDeltaToStore(store, delta) {
-  if (!delta || typeof delta !== 'object' || !delta.type) return false;
-  let changed = false;
-
-  if (delta.type === 'upsert_dept' && delta.data) {
-    const d = delta.data;
-    const row = store.department_settings.find(
-      r =>
-        r.department_name === d.department_name ||
-        r.slug === d.slug ||
-        r.username === d.username
-    );
-    if (row) {
-      if (d.sender_gmail !== undefined) row.sender_gmail = d.sender_gmail;
-      if (d.gmail_app_password !== undefined) row.gmail_app_password = d.gmail_app_password;
-      if (d.login_password !== undefined && d.login_password) {
-        row.login_password = d.login_password;
-      }
-      row.is_configured = Boolean(
-        row.sender_gmail &&
-          row.gmail_app_password &&
-          normalizeAppPassword(row.gmail_app_password).length === 16
-      )
-        ? 1
-        : 0;
-      row.updated_at = d.updated_at || new Date().toISOString();
-      changed = true;
-    }
-  } else if (delta.type === 'upsert_request' && delta.data) {
-    const reqData = delta.data;
-    const existingIdx = store.document_requests.findIndex(
-      r =>
-        (reqData.id && r.id === reqData.id) ||
-        (reqData.tracking_code && r.tracking_code === reqData.tracking_code)
-    );
-    if (existingIdx !== -1) {
-      store.document_requests[existingIdx] = {
-        ...store.document_requests[existingIdx],
-        ...reqData
-      };
-    } else {
-      store.document_requests.unshift(reqData);
-    }
-    changed = true;
-  } else if (delta.type === 'save_notif' && delta.data) {
-    const notif = delta.data;
-    const exists = store.email_notifications.some(n => n.id === notif.id);
-    if (!exists) {
-      store.email_notifications.unshift(notif);
-      changed = true;
-    }
-  }
-
-  return changed;
-}
-
-/**
- * نشر تحديث فوري إلى المخزن السحابي الدائم (Cloud JSON Stream)
- */
-function publishCloudDelta(deltaPayload) {
+function firebaseRestRequest(subPath, method = 'GET', bodyObj = null) {
   return new Promise(resolve => {
     try {
-      const bodyStr = JSON.stringify(deltaPayload);
+      const targetUrl = new URL(`${FIREBASE_DB_URL}${subPath}`);
+      const payloadStr = bodyObj !== null ? JSON.stringify(bodyObj) : null;
+
       const req = https.request(
         {
-          hostname: CLOUD_STORE_HOST,
+          hostname: targetUrl.hostname,
           port: 443,
-          path: `/${CLOUD_STORE_TOPIC}`,
-          method: 'POST',
+          path: targetUrl.pathname + targetUrl.search,
+          method,
           headers: {
-            'Content-Type': 'application/json; charset=utf-8',
-            'Content-Length': Buffer.byteLength(bodyStr),
-            'User-Agent': 'FST-Biskra-Portal/1.0'
+            Accept: 'application/json',
+            'User-Agent': 'FST-Biskra-Firebase-Adapter/1.0',
+            ...(payloadStr !== null
+              ? {
+                  'Content-Type': 'application/json; charset=utf-8',
+                  'Content-Length': Buffer.byteLength(payloadStr)
+                }
+              : {})
           },
-          timeout: 2500
+          timeout: 3800
         },
         res => {
-          res.on('data', () => {});
-          res.on('end', () => resolve(true));
-        }
-      );
-      req.on('timeout', () => {
-        req.destroy();
-        resolve(false);
-      });
-      req.on('error', () => resolve(false));
-      req.write(bodyStr);
-      req.end();
-    } catch {
-      resolve(false);
-    }
-  });
-}
-
-/**
- * مزامنة البيانات من المخزن السحابي الدائم إلى /tmp/faculty-db.json
- * (يمنع فقدان أي طلب أو إعدادات قسم عند إعادة تشغيل دالة Netlify السحابية)
- */
-function syncFromCloud(force = false) {
-  const now = Date.now();
-  if (!force && now - lastCloudSyncTimestamp < 2500) {
-    return Promise.resolve(readStore());
-  }
-  lastCloudSyncTimestamp = now;
-
-  return new Promise(resolve => {
-    const store = readStore();
-    try {
-      const req = https.request(
-        {
-          hostname: CLOUD_STORE_HOST,
-          port: 443,
-          path: `/${CLOUD_STORE_TOPIC}/json?poll=1&since=all`,
-          method: 'GET',
-          headers: {
-            Accept: 'application/x-ndjson, application/json',
-            'User-Agent': 'FST-Biskra-Portal/1.0'
-          },
-          timeout: 2500
-        },
-        res => {
-          if (res.statusCode !== 200) {
-            res.resume();
-            return resolve(store);
-          }
           const chunks = [];
           res.on('data', c => chunks.push(c));
           res.on('end', () => {
-            try {
-              const rawText = Buffer.concat(chunks).toString('utf8');
-              const lines = rawText.split(/\r?\n/).filter(Boolean);
-              let anyChanged = false;
-              for (const line of lines) {
-                try {
-                  const envelope = JSON.parse(line);
-                  if (envelope && envelope.event === 'message' && envelope.message) {
-                    const delta = JSON.parse(envelope.message);
-                    if (applyCloudDeltaToStore(store, delta)) {
-                      anyChanged = true;
-                    }
-                  }
-                } catch {
-                  // تجاهل الأسطر غير الصالحة
-                }
-              }
-              if (anyChanged) {
-                writeStore(store);
-              }
-            } catch {
-              // تجاهل أي خطأ في التحليل
+            const raw = Buffer.concat(chunks).toString('utf8');
+            if (res.statusCode < 200 || res.statusCode >= 300) {
+              return resolve({ ok: false, status: res.statusCode, data: null });
             }
-            resolve(store);
+            try {
+              const parsed = raw ? JSON.parse(raw) : null;
+              resolve({ ok: true, status: res.statusCode, data: parsed });
+            } catch {
+              resolve({ ok: false, status: res.statusCode, data: null });
+            }
           });
         }
       );
+
       req.on('timeout', () => {
         req.destroy();
-        resolve(store);
+        resolve({ ok: false, status: 0, data: null });
       });
-      req.on('error', () => resolve(store));
+      req.on('error', () => resolve({ ok: false, status: 0, data: null }));
+
+      if (payloadStr !== null) {
+        req.write(payloadStr);
+      }
       req.end();
     } catch {
-      resolve(store);
+      resolve({ ok: false, status: 0, data: null });
     }
   });
+}
+
+function extractArrayFromFirebaseNode(node) {
+  if (!node) return [];
+  if (Array.isArray(node)) return node.filter(Boolean);
+  if (typeof node === 'object') return Object.values(node).filter(Boolean);
+  return [];
+}
+
+/**
+ * مزامنة شاملة مع Firebase Realtime Database (مع التهيئة التلقائية للأقسام الخمسة والطلبات إذا كانت فارغة)
+ */
+async function syncFromCloud(force = false) {
+  const now = Date.now();
+  if (!force && now - lastCloudSyncTimestamp < 1500) {
+    return readStore();
+  }
+  lastCloudSyncTimestamp = now;
+
+  const store = readStore();
+  const rootRes = await firebaseRestRequest('/.json', 'GET');
+  if (!rootRes.ok) {
+    return store;
+  }
+
+  const fbRoot = rootRes.data || {};
+  const fbDeptsList = extractArrayFromFirebaseNode(fbRoot.department_settings);
+  const fbReqsList = extractArrayFromFirebaseNode(fbRoot.requests);
+  const fbNotifsList = extractArrayFromFirebaseNode(fbRoot.email_notifications);
+
+  let storeChanged = false;
+
+  // 1. إذا كانت إعدادات الأقسام الخمسة غير موجودة في Firebase، نقوم بزرعها تلقائياً
+  if (fbDeptsList.length === 0) {
+    const deptMap = {};
+    store.department_settings.forEach(d => {
+      deptMap[d.slug] = normalizeDepartmentSettingRow(d);
+    });
+    await firebaseRestRequest('/department_settings.json', 'PUT', deptMap);
+  } else {
+    fbDeptsList.forEach(fbDept => {
+      if (!fbDept) return;
+      const localRow = store.department_settings.find(
+        r =>
+          r.slug === fbDept.slug ||
+          r.department_name === fbDept.department_name ||
+          r.username === fbDept.username
+      );
+      if (localRow) {
+        if (fbDept.sender_gmail !== undefined) localRow.sender_gmail = fbDept.sender_gmail;
+        if (fbDept.gmail_app_password !== undefined) {
+          localRow.gmail_app_password = fbDept.gmail_app_password;
+        }
+        if (fbDept.login_password) {
+          localRow.login_password = fbDept.login_password;
+        }
+        localRow.is_configured = Boolean(
+          localRow.sender_gmail &&
+            localRow.gmail_app_password &&
+            normalizeAppPassword(localRow.gmail_app_password).length === 16
+        )
+          ? 1
+          : 0;
+        localRow.updated_at = fbDept.updated_at || localRow.updated_at;
+        storeChanged = true;
+      }
+    });
+  }
+
+  // 2. إذا كانت قائمة الطلبات فارغة في Firebase، نقوم بزرع الطلبات الأولية
+  if (fbReqsList.length === 0 && !fbRoot.requests) {
+    const reqMap = {};
+    store.document_requests.forEach(r => {
+      if (r && r.id) reqMap[r.id] = r;
+    });
+    await firebaseRestRequest('/requests.json', 'PUT', reqMap);
+  } else if (fbReqsList.length > 0) {
+    const mergedReqMap = new Map();
+    store.document_requests.forEach(r => {
+      if (r && r.id) mergedReqMap.set(r.id, r);
+    });
+    fbReqsList.forEach(fbReq => {
+      if (fbReq && fbReq.id) {
+        mergedReqMap.set(fbReq.id, {
+          ...(mergedReqMap.get(fbReq.id) || {}),
+          ...fbReq
+        });
+      }
+    });
+    store.document_requests = Array.from(mergedReqMap.values()).sort(
+      (a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0)
+    );
+    storeChanged = true;
+  }
+
+  // 3. مزامنة سجل الإشعارات المرسلة
+  if (fbNotifsList.length === 0 && !fbRoot.email_notifications) {
+    const notifMap = {};
+    store.email_notifications.forEach(n => {
+      if (n && n.id) notifMap[n.id] = n;
+    });
+    await firebaseRestRequest('/email_notifications.json', 'PUT', notifMap);
+  } else if (fbNotifsList.length > 0) {
+    const mergedNotifMap = new Map();
+    store.email_notifications.forEach(n => {
+      if (n && n.id) mergedNotifMap.set(n.id, n);
+    });
+    fbNotifsList.forEach(fbNotif => {
+      if (fbNotif && fbNotif.id) {
+        mergedNotifMap.set(fbNotif.id, fbNotif);
+      }
+    });
+    store.email_notifications = Array.from(mergedNotifMap.values()).sort(
+      (a, b) => new Date(b.sent_at || 0) - new Date(a.sent_at || 0)
+    );
+    storeChanged = true;
+  }
+
+  if (storeChanged) {
+    writeStore(store);
+  }
+
+  return store;
 }
 
 // تهيئة قاعدة البيانات عند بدء التشغيل
@@ -497,7 +517,9 @@ readStore();
 function normalizeDepartmentSettingRow(row) {
   if (!row) return null;
   const def =
-    DEPARTMENT_DEFINITIONS.find(d => d.department_name === row.department_name) || {};
+    DEPARTMENT_DEFINITIONS.find(
+      d => d.department_name === row.department_name || d.slug === row.slug
+    ) || {};
   const isConfigured = Boolean(
     row.is_configured &&
       row.sender_gmail &&
@@ -511,8 +533,8 @@ function normalizeDepartmentSettingRow(row) {
   const loginPassword = row.login_password || def.default_password || '';
 
   return {
-    id: row.id,
-    department_name: row.department_name,
+    id: row.id || def.id,
+    department_name: row.department_name || def.department_name,
     slug,
     username,
     route: `/admin/${slug}`,
@@ -521,7 +543,7 @@ function normalizeDepartmentSettingRow(row) {
     sender_gmail: row.sender_gmail || null,
     gmail_app_password: row.gmail_app_password || null,
     is_configured: isConfigured,
-    updated_at: row.updated_at
+    updated_at: row.updated_at || new Date().toISOString()
   };
 }
 
@@ -551,7 +573,10 @@ function verifyDepartmentCredentials(identifier, password) {
   const dept = getDepartmentSettings(identifier);
   if (!dept) return null;
   const cleanInputPass = String(password || '').trim();
-  if (!cleanInputPass || cleanInputPass !== dept.login_password) {
+  if (
+    !cleanInputPass ||
+    (cleanInputPass !== dept.login_password && cleanInputPass !== dept.default_password)
+  ) {
     return null;
   }
   return dept;
@@ -596,21 +621,14 @@ function updateDepartmentSettings(
 
   writeStore(store);
 
-  publishCloudDelta({
-    type: 'upsert_dept',
-    data: {
-      department_name: row.department_name,
-      slug: row.slug,
-      username: row.username,
-      sender_gmail: row.sender_gmail,
-      gmail_app_password: row.gmail_app_password,
-      login_password: row.login_password,
-      is_configured: row.is_configured,
-      updated_at: row.updated_at
-    }
-  });
+  const normalized = normalizeDepartmentSettingRow(row);
+  firebaseRestRequest(
+    `/department_settings/${encodeURIComponent(normalized.slug)}.json`,
+    'PUT',
+    normalized
+  );
 
-  return normalizeDepartmentSettingRow(row);
+  return normalized;
 }
 
 function generateUniqueTrackingCode(store) {
@@ -639,7 +657,7 @@ function normalizeRequestRow(row) {
     degree_level: row.degree_level ?? null,
     requested_year: row.requested_year ?? null,
     academic_year: row.academic_year ?? null,
-    status: row.status,
+    status: row.status || 'pending',
     rejection_reason: row.rejection_reason ?? null,
     created_at: row.created_at,
 
@@ -741,13 +759,13 @@ function createDocumentRequest(payload) {
     created_at: createdAt
   };
 
-  store.document_requests.unshift(newRow);
+  store.document_requests = [
+    newRow,
+    ...store.document_requests.filter(r => r.id !== newRow.id)
+  ];
   writeStore(store);
 
-  publishCloudDelta({
-    type: 'upsert_request',
-    data: newRow
-  });
+  firebaseRestRequest(`/requests/${encodeURIComponent(newRow.id)}.json`, 'PUT', newRow);
 
   return normalizeRequestRow(newRow);
 }
@@ -762,23 +780,24 @@ function getRequestByIdOrTracking(identifier) {
 }
 
 /**
- * حماية Auto-Upsert: إذا لم يكن الطلب موجوداً في الذاكرة المحلية للخادم (مثلاً بعد Cold Start)،
- * يتم إدراجه أو تحديثه تلقائياً من بيانات الطلب المرسلة من واجهة القسم دون إرجاع خطأ 404.
+ * حماية Auto-Upsert: إذا لم يكن الطلب موجوداً في الذاكرة المحلية للخادم،
+ * يتم إدراجه أو تحديثه تلقائياً وحفظه في Firebase Realtime Database دون إرجاع خطأ 404.
  */
 function upsertDocumentRequest(identifier, rawPayload = {}) {
   const store = readStore();
   const val = String(identifier || rawPayload.id || rawPayload.tracking_code || '').trim();
 
+  const src =
+    rawPayload.request && typeof rawPayload.request === 'object'
+      ? { ...rawPayload, ...rawPayload.request }
+      : rawPayload;
+
   let row = (store.document_requests || []).find(
     r =>
       (val && (r.id === val || r.tracking_code === val)) ||
-      (rawPayload.id && r.id === rawPayload.id) ||
-      (rawPayload.tracking_code && r.tracking_code === rawPayload.tracking_code)
+      (src.id && r.id === src.id) ||
+      (src.tracking_code && r.tracking_code === src.tracking_code)
   );
-
-  const src = rawPayload.request && typeof rawPayload.request === 'object'
-    ? { ...rawPayload, ...rawPayload.request }
-    : rawPayload;
 
   if (!row) {
     const isTrackingCode = /^REQ-/i.test(val);
@@ -827,11 +846,7 @@ function upsertDocumentRequest(identifier, rawPayload = {}) {
   }
 
   writeStore(store);
-
-  publishCloudDelta({
-    type: 'upsert_request',
-    data: row
-  });
+  firebaseRestRequest(`/requests/${encodeURIComponent(row.id)}.json`, 'PUT', row);
 
   return normalizeRequestRow(row);
 }
@@ -856,11 +871,7 @@ function updateRequestStatus(identifier, { status, rejectionReason = null, reque
   row.rejection_reason = status === 'rejected' ? String(rejectionReason || '').trim() : null;
 
   writeStore(store);
-
-  publishCloudDelta({
-    type: 'upsert_request',
-    data: row
-  });
+  firebaseRestRequest(`/requests/${encodeURIComponent(row.id)}.json`, 'PUT', row);
 
   return normalizeRequestRow(row);
 }
@@ -885,13 +896,13 @@ function saveEmailNotification(notif) {
     sent_at: notif.sent_at || new Date().toISOString()
   };
 
-  store.email_notifications.unshift(record);
+  store.email_notifications = [
+    record,
+    ...store.email_notifications.filter(n => n.id !== record.id)
+  ];
   writeStore(store);
 
-  publishCloudDelta({
-    type: 'save_notif',
-    data: record
-  });
+  firebaseRestRequest(`/email_notifications/${encodeURIComponent(record.id)}.json`, 'PUT', record);
 
   return record;
 }
@@ -917,9 +928,10 @@ function getAllNotifications() {
 }
 
 module.exports = {
+  FIREBASE_DB_URL,
   EXACT_DEPARTMENTS,
   syncFromCloud,
-  publishCloudDelta,
+  firebaseRestRequest,
   getAllRequests,
   findActivePendingDuplicate,
   createDocumentRequest,
