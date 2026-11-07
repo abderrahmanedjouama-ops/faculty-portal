@@ -1374,3 +1374,27 @@ body {
     max-width: 100% !important;
   }
 }
+
+/* =========================================================================
+   إخفاء وإزالة أي شارة أو إطار عائم خارجي (Powered by Netlify)
+   ========================================================================= */
+a[href*="netlify.com"],
+iframe[src*="netlify"],
+[id*="netlify"],
+[class*="netlify"],
+#netlify-badge,
+.netlify-badge,
+[data-netlify-badge],
+[data-netlify-deploy-badge] {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  max-width: 0 !important;
+  max-height: 0 !important;
+  overflow: hidden !important;
+  position: absolute !important;
+  z-index: -9999 !important;
+}

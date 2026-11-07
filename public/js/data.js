@@ -954,3 +954,66 @@ const DataRepository = {
     return list;
   }
 };
+
+/**
+ * إزالة أي شارة عائمة خارجية ("Powered by Netlify") يتم حقنها ديناميكياً في الصفحة
+ */
+(function initNetlifyBadgeRemover() {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return;
+
+  const BADGE_SELECTORS = [
+    'a[href*="netlify.com"]',
+    'iframe[src*="netlify"]',
+    '#netlify-badge',
+    '.netlify-badge',
+    '[data-netlify-badge]',
+    '[data-netlify-deploy-badge]'
+  ].join(', ');
+
+  function purgeInjectedBadges() {
+    try {
+      document.querySelectorAll(BADGE_SELECTORS).forEach(el => {
+        el.remove();
+      });
+
+      const candidates = document.querySelectorAll('a, div, span, aside, p, iframe');
+      candidates.forEach(el => {
+        if (
+          el === document.body ||
+          el === document.documentElement ||
+          el.classList.contains('gateway-wrapper') ||
+          el.classList.contains('main-container') ||
+          el.classList.contains('student-desktop-container') ||
+          el.classList.contains('login-desktop-stage')
+        ) {
+          return;
+        }
+        const text = (el.textContent || '').trim().toLowerCase();
+        if (
+          text === 'powered by netlify' ||
+          (text.includes('powered by netlify') && text.length < 80)
+        ) {
+          el.remove();
+        }
+      });
+    } catch {
+      // تجاهل أي أخطاء أثناء الفحص
+    }
+  }
+
+  purgeInjectedBadges();
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', purgeInjectedBadges);
+  }
+
+  if (typeof MutationObserver !== 'undefined') {
+    const observer = new MutationObserver(() => {
+      purgeInjectedBadges();
+    });
+    observer.observe(document.documentElement, {
+      childList: true,
+      subtree: true
+    });
+  }
+})();
