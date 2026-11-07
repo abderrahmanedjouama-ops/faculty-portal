@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>بوابة الطالب | كلية العلوم والتكنولوجيا</title>
+  <link rel="icon" type="image/jpeg" href="/images/fst-logo.jpg" />
+  <link rel="stylesheet" href="/css/styles.css" />
+  <style>
+    .student-desktop-container {
+      max-width: 1080px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 2rem 2rem 2.5rem;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+
+    .student-form-logo-badge {
+      width: 54px;
+      height: 54px;
+      border-radius: 50%;
+      background: var(--white);
+      padding: 3px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      box-shadow: 0 3px 10px rgba(0, 0, 0, 0.2);
+      overflow: hidden;
+    }
+
+    .student-form-logo-badge img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      border-radius: 50%;
+      display: block;
+    }
+
+    .student-2col-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 1.25rem 1.75rem;
+      align-items: start;
+    }
+
+    @media (max-width: 768px) {
+      .student-2col-grid {
+        grid-template-columns: 1fr;
+      }
+      .student-desktop-container {
+        padding: 1.25rem;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- الشريط الرسمي العلوي -->
+  <div class="official-bar">
+    <div class="official-bar-inner">
+      <div>وزارة التعليم العالي والبحث العلمي</div>
+    </div>
+  </div>
+
+  <!-- الترويسة الرسمية -->
+  <header class="main-header">
+    <div class="header-container">
+      <a href="/" class="brand-group">
+        <div class="university-crest">
+          <img src="/images/fst-logo.jpg" alt="شعار كلية العلوم والتكنولوجيا" class="faculty-logo-img" />
+        </div>
+        <div class="brand-titles">
+          <h1>كلية العلوم والتكنولوجيا</h1>
+        </div>
+      </a>
+
+      <div class="header-nav">
+        <a href="/" class="nav-switch-btn" style="text-decoration: none;">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
+          <span>العودة للصفحة الرئيسية</span>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- المحتوى الرئيسي -->
+  <main class="student-desktop-container">
+
+    <section id="newRequestSection" class="academic-card">
+      <div class="card-header">
+        <div class="card-header-title">
+          <div class="student-form-logo-badge">
+            <img src="/images/fst-logo.jpg" alt="شعار كلية العلوم والتكنولوجيا" />
+          </div>
+          <div>
+            <h3>بوابة الطالب — تقديم طلب وثيقة</h3>
+          </div>
+        </div>
+      </div>
+
+      <div class="card-body">
+        <form id="documentRequestForm" novalidate>
+          <div class="student-2col-grid">
+
+            <!-- 1. الاسم -->
+            <div class="form-group">
+              <label for="firstName" class="form-label">
+                <span>الاسم</span>
+                <span class="required-star">*</span>
+              </label>
+              <input
+                type="text"
+                id="firstName"
+                name="firstName"
+                class="form-control"
+                placeholder="أدخل الاسم"
+                autocomplete="given-name"
+                required
+              />
+              <span id="firstNameError" class="field-error"></span>
+            </div>
+
+            <!-- 2. اللقب -->
+            <div class="form-group">
+              <label for="lastName" class="form-label">
+                <span>اللقب</span>
+                <span class="required-star">*</span>
+              </label>
+              <input
+                type="text"
+                id="lastName"
+                name="lastName"
+                class="form-control"
+                placeholder="أدخل اللقب"
+                autocomplete="family-name"
+                required
+              />
+              <span id="lastNameError" class="field-error"></span>
+            </div>
+
+            <!-- 3. الرقم التسلسلي لبطاقة الطالب -->
+            <div class="form-group">
+              <label for="studentCardNumber" class="form-label">
+                <span>الرقم التسلسلي لبطاقة الطالب</span>
+                <span class="required-star">*</span>
+              </label>
+              <input
+                type="text"
+                id="studentCardNumber"
+                name="studentCardNumber"
+                class="form-control"
+                placeholder="أدخل الرقم التسلسلي لبطاقة الطالب"
+                inputmode="numeric"
+                required
+              />
+              <span id="studentCardNumberError" class="field-error"></span>
+            </div>
+
+            <!-- 4. البريد الإلكتروني -->
+            <div class="form-group">
+              <label for="email" class="form-label">
+                <span>البريد الإلكتروني</span>
+                <span class="required-star">*</span>
+              </label>
+              <input
+                type="email"
+                id="email"
+                name="email"
+                class="form-control"
+                placeholder="student@gmail.com"
+                dir="ltr"
+                style="text-align: right;"
+                required
+              />
+              <span id="emailError" class="field-error"></span>
+            </div>
+
+            <!-- 5. القسم -->
+            <div class="form-group">
+              <label for="department" class="form-label">
+                <span>القسم</span>
+                <span class="required-star">*</span>
+              </label>
+              <select id="department" name="department" class="form-control" required></select>
+              <span id="departmentError" class="field-error"></span>
+            </div>
+
+            <!-- 6. عام البكالوريا -->
+            <div class="form-group">
+              <label for="bacYear" class="form-label">
+                <span>عام البكالوريا</span>
+                <span class="required-star">*</span>
+              </label>
+              <select id="bacYear" name="bacYear" class="form-control" required></select>
+              <span id="bacYearError" class="field-error"></span>
+            </div>
+
+            <!-- 7. نوع الوثيقة المطلوبة -->
+            <div class="form-group full-width">
+              <label for="documentType" class="form-label">
+                <span>نوع الوثيقة المطلوبة</span>
+                <span class="required-star">*</span>
+              </label>
+              <select id="documentType" name="documentType" class="form-control" required></select>
+              <span id="documentTypeError" class="field-error"></span>
+            </div>
+
+            <!-- الحقول الشرطية 1: شهادة الترتيب -->
+            <div id="conditionalRankSection" class="conditional-box" style="display: none;">
+              <div class="form-group">
+                <label class="form-label">
+                  <span>الطور</span>
+                  <span class="required-star">*</span>
+                </label>
+                <div class="cycle-selector">
+                  <label class="cycle-option">
+                    <input type="radio" name="cycle" value="ليسانس" />
+                    <span class="cycle-card-label">
+                      <span>طور ليسانس</span>
+                    </span>
+                  </label>
+
+                  <label class="cycle-option">
+                    <input type="radio" name="cycle" value="ماستر" />
+                    <span class="cycle-card-label">
+                      <span>طور ماستر</span>
+                    </span>
+                  </label>
+                </div>
+                <span id="cycleError" class="field-error"></span>
+              </div>
+            </div>
+
+            <!-- الحقول الشرطية 2: كشف النقاط -->
+            <div id="conditionalTranscriptSection" class="conditional-box" style="display: none;">
+              <div class="student-2col-grid">
+                <div class="form-group">
+                  <label for="targetYear" class="form-label">
+                    <span>السنة المطلوبة</span>
+                    <span class="required-star">*</span>
+                  </label>
+                  <select id="targetYear" name="targetYear" class="form-control"></select>
+                  <span id="targetYearError" class="field-error"></span>
+                </div>
+
+                <div class="form-group">
+                  <label for="academicYear" class="form-label">
+                    <span>العام الدراسي لتلك السنة</span>
+                    <span class="required-star">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    id="academicYear"
+                    name="academicYear"
+                    list="academicYearsList"
+                    class="form-control"
+                    placeholder="2024/2025"
+                    dir="ltr"
+                    style="text-align: right;"
+                  />
+                  <datalist id="academicYearsList"></datalist>
+                  <span id="academicYearError" class="field-error"></span>
+                </div>
+              </div>
+            </div>
+
+            <!-- تنبيه منع تكرار الطلبات قيد المعالجة -->
+            <div id="duplicateWarningBanner" class="status-alert-box pending-alert full-width" style="display: none; grid-column: 1 / -1; margin-top: 0.2rem;">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="flex-shrink: 0; margin-top: 2px;">
+                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                <line x1="12" y1="9" x2="12" y2="13"></line>
+                <line x1="12" y1="17" x2="12.01" y2="17"></line>
+              </svg>
+              <div style="flex: 1;">
+                <strong style="display: block; font-size: 0.92rem; margin-bottom: 0.2rem;">تنبيه: يوجد طلب مماثل قيد المعالجة حالياً</strong>
+                <p id="duplicateWarningMessage" style="margin: 0; font-size: 0.86rem; line-height: 1.55;"></p>
+              </div>
+            </div>
+
+            <!-- أزرار الإرسال -->
+            <div class="form-actions">
+              <button type="button" id="resetFormBtn" class="btn btn-secondary">
+                <span>إفراغ الحقول</span>
+              </button>
+
+              <button type="submit" id="submitRequestBtn" class="btn btn-primary" style="min-width: 220px;">
+                <span>إرسال الطلب</span>
+              </button>
+            </div>
+
+          </div>
+        </form>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- نافذة تأكيد إرسال الطلب -->
+  <div id="confirmationModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="confirmModalTitle">
+    <div class="modal-dialog">
+      <div class="modal-header success-header">
+        <div style="display: flex; align-items: center; gap: 0.65rem;">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+          <h3 id="confirmModalTitle" style="font-size: 1.15rem; font-weight: 800;">تم تسجيل طلب الوثيقة بنجاح</h3>
+        </div>
+        <button type="button" id="closeConfirmModalBtn" class="modal-close-btn" aria-label="إغلاق">✕</button>
+      </div>
+
+      <div class="modal-body">
+        <div class="tracking-highlight-box">
+          <span style="font-size: 0.85rem; color: var(--gray-600); font-weight: 700;">رقم الطلب:</span>
+          <span id="confirmTrackingId" class="tracking-number-big">REQ-0000</span>
+          <p style="font-size: 0.9rem; color: var(--navy-900); font-weight: 700; margin-top: 0.45rem;">
+            تم إرسال طلبك إلى مصلحة التدريس بالقسم، وستصلك رسالة إشعار على بريدك الإلكتروني فور جاهزية الوثيقة للاستلام.
+          </p>
+        </div>
+
+        <h4 style="font-size: 0.96rem; color: var(--navy-900); margin-bottom: 0.6rem; font-weight: 800;">ملخص البيانات المرسلة:</h4>
+        <table class="summary-table">
+          <tbody id="confirmSummaryTableBody"></tbody>
+        </table>
+      </div>
+
+      <div class="modal-footer">
+        <button type="button" id="printReceiptBtn" class="btn btn-secondary btn-sm">
+          <span>طباعة الوصل</span>
+        </button>
+        <button type="button" id="confirmDoneBtn" class="btn btn-primary btn-sm">
+          <span>إغلاق</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toastContainer" class="toast-container" aria-live="polite"></div>
+
+  <!-- التذييل الرسمي -->
+  <footer class="main-footer">
+    <div class="footer-inner">
+      <div>وزارة التعليم العالي والبحث العلمي — كلية العلوم والتكنولوجيا</div>
+    </div>
+  </footer>
+
+  <script src="/js/data.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>
