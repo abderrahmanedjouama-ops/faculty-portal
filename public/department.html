@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title id="pageDocumentTitle">لوحة تحكم القسم | كلية العلوم والتكنولوجيا</title>
+  <link rel="icon" type="image/jpeg" href="/images/fst-logo.jpg" />
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body>
+
+  <!-- الشريط الرسمي العلوي -->
+  <div class="official-bar">
+    <div class="official-bar-inner">
+      <div>وزارة التعليم العالي والبحث العلمي</div>
+    </div>
+  </div>
+
+  <!-- الترويسة الرسمية -->
+  <header class="main-header">
+    <div class="header-container">
+      <div class="brand-group" style="cursor: default;">
+        <div class="university-crest">
+          <img src="/images/fst-logo.jpg" alt="شعار كلية العلوم والتكنولوجيا" class="faculty-logo-img" />
+        </div>
+        <div class="brand-titles">
+          <h1>كلية العلوم والتكنولوجيا</h1>
+        </div>
+      </div>
+
+      <div class="header-nav">
+        <span id="headerEmailConfigStatus" class="status-badge pending" style="font-size: 0.82rem; padding: 0.45rem 0.9rem;">
+          بريد القسم غير مُعدّ
+        </span>
+
+        <button
+          type="button"
+          id="openDeptSettingsModalBtn"
+          class="nav-switch-btn admin-btn active"
+          style="border: none;"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+          <span>إعدادات الحساب والبريد</span>
+        </button>
+
+        <button type="button" id="openNotificationsModalBtn" class="nav-switch-btn">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
+          <span>سجل الإشعارات (<span id="gmailNotifCountBadge">0</span>)</span>
+        </button>
+
+        <button
+          type="button"
+          id="logoutDeptBtn"
+          class="nav-switch-btn"
+          style="background: rgba(220, 38, 38, 0.22); border-color: rgba(252, 165, 165, 0.45); color: #fecaca;"
+        >
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+          <span>تسجيل الخروج</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- المحتوى الرئيسي للوحة تحكم القسم -->
+  <main class="main-container">
+
+    <!-- عنوان القسم -->
+    <div class="portal-hero" style="margin-bottom: 1.5rem;">
+      <div class="portal-hero-text">
+        <h2 id="deptHeroTitle" style="margin: 0;">لوحة تحكم القسم</h2>
+      </div>
+
+      <div id="deptCurrentSenderBox" style="background: var(--navy-50); border: 1px solid var(--navy-100); padding: 0.65rem 1rem; border-radius: 10px; font-size: 0.85rem; color: var(--navy-900);">
+        <span>بريد الإرسال المعتمد للقسم: </span>
+        <strong id="deptCurrentSenderGmail" style="direction: ltr; display: inline-block; color: var(--navy-700);">غير مُعدّ بعد</strong>
+      </div>
+    </div>
+
+    <!-- الإحصائيات السريعة الخاصة بهذا القسم -->
+    <div class="admin-stats-grid">
+      <div class="stat-card total">
+        <div class="stat-info">
+          <h4>إجمالي طلبات القسم</h4>
+          <div id="statTotalRequests" class="stat-number">0</div>
+        </div>
+        <div class="stat-icon">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
+        </div>
+      </div>
+
+      <div class="stat-card pending">
+        <div class="stat-info">
+          <h4>طلبات قيد الانتظار</h4>
+          <div id="statPendingRequests" class="stat-number">0</div>
+        </div>
+        <div class="stat-icon">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+        </div>
+      </div>
+
+      <div class="stat-card ready">
+        <div class="stat-info">
+          <h4>طلبات جاهزة للاستلام</h4>
+          <div id="statReadyRequests" class="stat-number">0</div>
+        </div>
+        <div class="stat-icon">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+        </div>
+      </div>
+
+      <div class="stat-card rejected">
+        <div class="stat-info">
+          <h4>طلبات مرفوضة</h4>
+          <div id="statRejectedRequests" class="stat-number">0</div>
+        </div>
+        <div class="stat-icon">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>
+        </div>
+      </div>
+    </div>
+
+    <!-- شريط البحث والفلترة -->
+    <div class="admin-toolbar" style="grid-template-columns: 2fr 1fr auto;">
+      <div class="form-group">
+        <label for="adminSearchInput" class="form-label">البحث بالرقم التسلسلي لبطاقة الطالب أو الاسم:</label>
+        <input
+          type="text"
+          id="adminSearchInput"
+          class="form-control"
+          placeholder="ابحث بالرقم التسلسلي للبطاقة، اسم أو لقب الطالب، أو رمز الطلب..."
+        />
+      </div>
+
+      <div class="form-group">
+        <label for="adminStatusFilter" class="form-label">فلترة حسب حالة الطلب:</label>
+        <select id="adminStatusFilter" class="form-control">
+          <option value="all">جميع الحالات</option>
+          <option value="pending">قيد الانتظار</option>
+          <option value="ready">جاهزة للاستلام</option>
+          <option value="rejected">مرفوضة</option>
+        </select>
+      </div>
+
+      <button
+        type="button"
+        id="resetAdminFiltersBtn"
+        class="btn btn-secondary"
+        style="height: 46px; padding: 0 1.25rem;"
+      >
+        <span>إعادة ضبط</span>
+      </button>
+    </div>
+
+    <!-- جدول الطلبات الواردة الخاصة بهذا القسم -->
+    <div class="table-container">
+      <div class="table-header-bar">
+        <div style="display: flex; align-items: center; gap: 0.65rem;">
+          <h3 id="tableSectionTitle" style="font-size: 1.08rem; font-weight: 800; color: var(--navy-900);">جدول الطلبات الواردة</h3>
+          <span id="tableResultsCountBadge" class="open-portal-pill">0 طلب</span>
+        </div>
+      </div>
+
+      <div class="table-responsive">
+        <table class="admin-table">
+          <thead>
+            <tr>
+              <th>رمز الطلب</th>
+              <th>بيانات الطالب</th>
+              <th>الرقم التسلسلي والدفعة</th>
+              <th>نوع الوثيقة</th>
+              <th>التفاصيل الشرطية</th>
+              <th>تاريخ الطلب</th>
+              <th>الحالة الحالية</th>
+              <th>الإجراءات</th>
+            </tr>
+          </thead>
+          <tbody id="adminRequestsTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- النافذة المنبثقة 1: إعدادات الحساب والبريد -->
+  <div id="departmentSettingsModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="deptSettingsModalTitle">
+    <div class="modal-dialog" style="max-width: 580px;">
+      <div class="modal-header" style="background: linear-gradient(135deg, var(--navy-950) 0%, var(--navy-800) 100%); border-bottom: 3px solid var(--gold-500);">
+        <div style="display: flex; align-items: center; gap: 0.65rem;">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2.2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+          <h3 id="deptSettingsModalTitle" style="font-size: 1.08rem; font-weight: 800;">
+            إعدادات الحساب والبريد - <span id="settingsModalHeaderDeptName" style="color: #fbbf24;"></span>
+          </h3>
+        </div>
+        <button type="button" id="closeDeptSettingsModalBtn" class="modal-close-btn" aria-label="إغلاق">✕</button>
+      </div>
+
+      <form id="departmentSettingsForm" novalidate>
+        <div class="modal-body">
+
+          <div id="settingsUnconfiguredWarningBox" class="status-alert-box rejected-alert" style="display: none; margin-top: 0; margin-bottom: 1.15rem;">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" style="flex-shrink: 0; margin-top: 2px;">
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="12" y1="8" x2="12" y2="12"></line>
+              <line x1="12" y1="16" x2="12.01" y2="16"></line>
+            </svg>
+            <div style="font-weight: 700; font-size: 0.9rem;">
+              يرجى إدخال البريد الإلكتروني للقسم ورمز التطبيق في خانة الإعدادات أولاً قبل إرسال الإشعارات
+            </div>
+          </div>
+
+          <div style="background: var(--gray-50); border: 1px solid var(--gray-200); border-radius: 10px; padding: 0.85rem 1.1rem; margin-bottom: 1.15rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+            <div>
+              <span style="font-size: 0.8rem; color: var(--gray-500); display: block;">القسم الحالي:</span>
+              <strong id="lockedDepartmentNameLabel" style="font-size: 1rem; color: var(--navy-900);"></strong>
+            </div>
+            <span id="deptSettingsConfigStatusBadge" class="status-badge pending" style="font-size: 0.78rem;">غير مُعدّ</span>
+          </div>
+
+          <!-- 1. البريد الإلكتروني للقسم -->
+          <div class="form-group" style="margin-bottom: 1.15rem;">
+            <label for="deptSenderGmailInput" class="form-label">
+              <span>البريد الإلكتروني للقسم</span>
+            </label>
+            <input
+              type="email"
+              id="deptSenderGmailInput"
+              class="form-control"
+              placeholder="example.dept@gmail.com"
+              dir="ltr"
+              style="text-align: right; font-weight: 600;"
+            />
+          </div>
+
+          <!-- 2. رمز تطبيق البريد -->
+          <div class="form-group" style="margin-bottom: 1.15rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <label for="deptAppPasswordInput" class="form-label">
+                <span>رمز تطبيق البريد</span>
+              </label>
+              <span id="appPasswordCharCount" style="font-size: 0.78rem; font-family: monospace; font-weight: 700; color: var(--gray-500);">0 / 16 حرفاً</span>
+            </div>
+
+            <div style="position: relative; display: flex; align-items: center;">
+              <input
+                type="password"
+                id="deptAppPasswordInput"
+                class="form-control"
+                placeholder="xxxx xxxx xxxx xxxx"
+                dir="ltr"
+                style="text-align: left; font-family: monospace; letter-spacing: 0.12em; padding-right: 3rem; font-weight: 700;"
+                maxlength="23"
+              />
+              <button
+                type="button"
+                id="toggleAppPasswordBtn"
+                style="position: absolute; right: 0.65rem; background: var(--gray-100); border: 1px solid var(--gray-300); border-radius: 6px; padding: 0.3rem 0.55rem; cursor: pointer; font-size: 0.78rem; font-family: inherit; font-weight: 700; color: var(--navy-800);"
+              >
+                إظهار
+              </button>
+            </div>
+          </div>
+
+          <!-- 3. كلمة مرور تسجيل الدخول للقسم -->
+          <div class="form-group" style="margin-bottom: 1.15rem; padding-top: 0.9rem; border-top: 1px dashed var(--gray-200);">
+            <label for="deptLoginPasswordInput" class="form-label">
+              <span>كلمة مرور تسجيل الدخول للقسم</span>
+              <span class="required-star">*</span>
+            </label>
+            <div style="position: relative; display: flex; align-items: center;">
+              <input
+                type="password"
+                id="deptLoginPasswordInput"
+                class="form-control"
+                placeholder="أدخل كلمة مرور تسجيل الدخول الخاصة بالقسم"
+                dir="ltr"
+                style="text-align: left; font-family: monospace; padding-right: 3rem; font-weight: 700;"
+                required
+              />
+              <button
+                type="button"
+                id="toggleDeptLoginPassBtn"
+                style="position: absolute; right: 0.65rem; background: var(--gray-100); border: 1px solid var(--gray-300); border-radius: 6px; padding: 0.3rem 0.55rem; cursor: pointer; font-size: 0.78rem; font-family: inherit; font-weight: 700; color: var(--navy-800);"
+              >
+                إظهار
+              </button>
+            </div>
+          </div>
+
+          <div style="background: var(--navy-50); border: 1px solid #93c5fd; border-right: 4px solid var(--navy-700); border-radius: 10px; padding: 0.9rem 1.1rem; font-size: 0.85rem; color: var(--navy-900); line-height: 1.65;">
+            <strong>ملاحظة:</strong>
+            <p style="margin-top: 0.2rem;">
+              يرجى إدخال رمز التطبيق المكون من 16 حرفاً المستخرج من إعدادات أمان البريد، وليس كلمة المرور العادية للحساب.
+            </p>
+          </div>
+
+        </div>
+
+        <div class="modal-footer" style="justify-content: space-between;">
+          <button
+            type="button"
+            id="sendTestEmailBtn"
+            class="btn btn-secondary btn-sm"
+            style="border-color: var(--navy-600); color: var(--navy-800);"
+          >
+            <span>إرسال رسالة تجريبية</span>
+          </button>
+
+          <div style="display: flex; gap: 0.6rem;">
+            <button type="button" id="cancelDeptSettingsBtn" class="btn btn-secondary btn-sm">إغلاق</button>
+            <button type="submit" id="saveDeptSettingsBtn" class="btn btn-success btn-sm">
+              <span>حفظ الإعدادات</span>
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- النافذة المنبثقة 2: رفض الطلب -->
+  <div id="rejectRequestModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="rejectModalTitle">
+    <div class="modal-dialog" style="max-width: 520px;">
+      <div class="modal-header danger-header">
+        <div style="display: flex; align-items: center; gap: 0.65rem;">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fecaca" stroke-width="2.4"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>
+          <h3 id="rejectModalTitle" style="font-size: 1.1rem; font-weight: 800;">رفض الطلب وتحديد السبب</h3>
+        </div>
+        <button type="button" id="closeRejectModalBtn" class="modal-close-btn" aria-label="إغلاق">✕</button>
+      </div>
+
+      <form id="confirmRejectForm">
+        <div class="modal-body">
+          <div style="background: var(--gray-50); border: 1px solid var(--gray-200); border-radius: 10px; padding: 0.85rem 1rem; margin-bottom: 1.15rem; font-size: 0.88rem;">
+            <div>رمز الطلب: <strong id="rejectModalRequestId" style="font-family: monospace;"></strong></div>
+            <div>الطالب: <strong id="rejectModalStudentName"></strong></div>
+            <div>الوثيقة المطلوبة: <strong id="rejectModalDocType" style="color: var(--navy-700);"></strong></div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">أسباب رفض سريعة:</label>
+            <div class="reason-chips">
+              <button type="button" class="reason-chip">خطأ في الرقم التسلسلي لبطاقة الطالب</button>
+              <button type="button" class="reason-chip">الطالب غير مسجل في هذا القسم</button>
+              <button type="button" class="reason-chip">السنة الدراسية أو الطور غير مطابق لملف الطالب</button>
+              <button type="button" class="reason-chip">يرجى تسوية الوضعية الإدارية بالمكتبة المركزية أولاً</button>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="rejectionReasonInput" class="form-label">
+              <span>سبب الرفض</span>
+              <span class="required-star">*</span>
+            </label>
+            <textarea
+              id="rejectionReasonInput"
+              rows="3"
+              class="form-control"
+              placeholder="اكتب سبب الرفض..."
+              required
+            ></textarea>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" id="cancelRejectBtn" class="btn btn-secondary btn-sm">إلغاء</button>
+          <button type="submit" class="btn btn-danger btn-sm">
+            <span>تأكيد رفض الطلب</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- النافذة المنبثقة 3: سجل الإشعارات -->
+  <div id="notificationsModal" class="modal-backdrop" role="dialog" aria-modal="true">
+    <div class="modal-dialog" style="max-width: 680px;">
+      <div class="modal-header">
+        <div style="display: flex; align-items: center; gap: 0.65rem;">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2.2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
+          <h3 style="font-size: 1.1rem; font-weight: 800;">سجل الإشعارات المرسلة من القسم</h3>
+        </div>
+        <button type="button" id="closeNotificationsModalBtn" class="modal-close-btn" aria-label="إغلاق">✕</button>
+      </div>
+      <div class="modal-body" id="notificationsLogContainer"></div>
+      <div class="modal-footer">
+        <button type="button" id="closeNotificationsFooterBtn" class="btn btn-secondary btn-sm">إغلاق</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toastContainer" class="toast-container" aria-live="polite"></div>
+
+  <!-- التذييل الرسمي -->
+  <footer class="main-footer">
+    <div class="footer-inner">
+      <div id="footerDeptCopyright">وزارة التعليم العالي والبحث العلمي — كلية العلوم والتكنولوجيا</div>
+    </div>
+  </footer>
+
+  <script src="/js/data.js"></script>
+  <script src="/js/department.js"></script>
+</body>
+</html>
