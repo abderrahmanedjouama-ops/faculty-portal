@@ -1,12 +1,14 @@
 /**
- * طبقة قاعدة البيانات المبنية على ملف JSON (Zero SQLite)
- * تستخدم فقط مكتبات Node.js المدمجة (fs و path) لتخزين البيانات في:
- * - /tmp/faculty-db.json (على منصة Netlify السحابية)
- * - ./db/faculty-db.json (عند التشغيل المحلي)
+ * طبقة قاعدة البيانات السحابية المستمرة (Cloud JSON Store + /tmp Cache - Zero SQLite)
+ * تستخدم مكتبات Node.js المدمجة فقط (fs, path, https, crypto) لتخزين البيانات:
+ * 1. سحابياً بشكل تلقائي ودائم عبر مخزن JSON السحابي (بدون مفاتيح API أو حسابات خارجية)
+ *    لضمان بقاء الطلبات وإعدادات الأقسام عبر مختلف الأجهزة والمتصفحات وإعادات تشغيل Netlify.
+ * 2. محلياً في /tmp/faculty-db.json (على Netlify) أو ./db/faculty-db.json (عند التشغيل المحلي) كذاكرة فورية.
  */
 
 const fs = require('fs');
 const path = require('path');
+const https = require('https');
 const crypto = require('crypto');
 const {
   normalizeAppPassword,
@@ -29,6 +31,11 @@ function resolveJsonDbPath() {
 }
 
 const DB_FILE_PATH = resolveJsonDbPath();
+
+// قناة التخزين السحابي الدائم (تعمل تلقائياً بدون مفاتيح أو تسجيل)
+const CLOUD_STORE_TOPIC =
+  process.env.FACULTY_CLOUD_TOPIC || 'fst_biskra_portal_cloud_db_2026_v1';
+const CLOUD_STORE_HOST = 'ntfy.sh';
 
 const DEPARTMENT_DEFINITIONS = [
   {
@@ -235,11 +242,13 @@ function buildInitialSeedStore() {
   return {
     department_settings,
     document_requests,
-    email_notifications
+    email_notifications,
+    last_cloud_sync_at: 0
   };
 }
 
 let memoryStore = null;
+let lastCloudSyncTimestamp = 0;
 
 function readStore() {
   try {
@@ -308,6 +317,176 @@ function ensureDepartmentsInStore(store) {
       existing.slug = existing.slug || def.slug;
       existing.username = existing.username || def.username;
       existing.login_password = existing.login_password || def.default_password;
+    }
+  });
+}
+
+/**
+ * تطبيق حدث سحابي واحد (Delta Event) على قاعدة البيانات المحلية
+ */
+function applyCloudDeltaToStore(store, delta) {
+  if (!delta || typeof delta !== 'object' || !delta.type) return false;
+  let changed = false;
+
+  if (delta.type === 'upsert_dept' && delta.data) {
+    const d = delta.data;
+    const row = store.department_settings.find(
+      r =>
+        r.department_name === d.department_name ||
+        r.slug === d.slug ||
+        r.username === d.username
+    );
+    if (row) {
+      if (d.sender_gmail !== undefined) row.sender_gmail = d.sender_gmail;
+      if (d.gmail_app_password !== undefined) row.gmail_app_password = d.gmail_app_password;
+      if (d.login_password !== undefined && d.login_password) {
+        row.login_password = d.login_password;
+      }
+      row.is_configured = Boolean(
+        row.sender_gmail &&
+          row.gmail_app_password &&
+          normalizeAppPassword(row.gmail_app_password).length === 16
+      )
+        ? 1
+        : 0;
+      row.updated_at = d.updated_at || new Date().toISOString();
+      changed = true;
+    }
+  } else if (delta.type === 'upsert_request' && delta.data) {
+    const reqData = delta.data;
+    const existingIdx = store.document_requests.findIndex(
+      r =>
+        (reqData.id && r.id === reqData.id) ||
+        (reqData.tracking_code && r.tracking_code === reqData.tracking_code)
+    );
+    if (existingIdx !== -1) {
+      store.document_requests[existingIdx] = {
+        ...store.document_requests[existingIdx],
+        ...reqData
+      };
+    } else {
+      store.document_requests.unshift(reqData);
+    }
+    changed = true;
+  } else if (delta.type === 'save_notif' && delta.data) {
+    const notif = delta.data;
+    const exists = store.email_notifications.some(n => n.id === notif.id);
+    if (!exists) {
+      store.email_notifications.unshift(notif);
+      changed = true;
+    }
+  }
+
+  return changed;
+}
+
+/**
+ * نشر تحديث فوري إلى المخزن السحابي الدائم (Cloud JSON Stream)
+ */
+function publishCloudDelta(deltaPayload) {
+  return new Promise(resolve => {
+    try {
+      const bodyStr = JSON.stringify(deltaPayload);
+      const req = https.request(
+        {
+          hostname: CLOUD_STORE_HOST,
+          port: 443,
+          path: `/${CLOUD_STORE_TOPIC}`,
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Content-Length': Buffer.byteLength(bodyStr),
+            'User-Agent': 'FST-Biskra-Portal/1.0'
+          },
+          timeout: 2500
+        },
+        res => {
+          res.on('data', () => {});
+          res.on('end', () => resolve(true));
+        }
+      );
+      req.on('timeout', () => {
+        req.destroy();
+        resolve(false);
+      });
+      req.on('error', () => resolve(false));
+      req.write(bodyStr);
+      req.end();
+    } catch {
+      resolve(false);
+    }
+  });
+}
+
+/**
+ * مزامنة البيانات من المخزن السحابي الدائم إلى /tmp/faculty-db.json
+ * (يمنع فقدان أي طلب أو إعدادات قسم عند إعادة تشغيل دالة Netlify السحابية)
+ */
+function syncFromCloud(force = false) {
+  const now = Date.now();
+  if (!force && now - lastCloudSyncTimestamp < 2500) {
+    return Promise.resolve(readStore());
+  }
+  lastCloudSyncTimestamp = now;
+
+  return new Promise(resolve => {
+    const store = readStore();
+    try {
+      const req = https.request(
+        {
+          hostname: CLOUD_STORE_HOST,
+          port: 443,
+          path: `/${CLOUD_STORE_TOPIC}/json?poll=1&since=all`,
+          method: 'GET',
+          headers: {
+            Accept: 'application/x-ndjson, application/json',
+            'User-Agent': 'FST-Biskra-Portal/1.0'
+          },
+          timeout: 2500
+        },
+        res => {
+          if (res.statusCode !== 200) {
+            res.resume();
+            return resolve(store);
+          }
+          const chunks = [];
+          res.on('data', c => chunks.push(c));
+          res.on('end', () => {
+            try {
+              const rawText = Buffer.concat(chunks).toString('utf8');
+              const lines = rawText.split(/\r?\n/).filter(Boolean);
+              let anyChanged = false;
+              for (const line of lines) {
+                try {
+                  const envelope = JSON.parse(line);
+                  if (envelope && envelope.event === 'message' && envelope.message) {
+                    const delta = JSON.parse(envelope.message);
+                    if (applyCloudDeltaToStore(store, delta)) {
+                      anyChanged = true;
+                    }
+                  }
+                } catch {
+                  // تجاهل الأسطر غير الصالحة
+                }
+              }
+              if (anyChanged) {
+                writeStore(store);
+              }
+            } catch {
+              // تجاهل أي خطأ في التحليل
+            }
+            resolve(store);
+          });
+        }
+      );
+      req.on('timeout', () => {
+        req.destroy();
+        resolve(store);
+      });
+      req.on('error', () => resolve(store));
+      req.end();
+    } catch {
+      resolve(store);
     }
   });
 }
@@ -416,6 +595,21 @@ function updateDepartmentSettings(
   row.updated_at = new Date().toISOString();
 
   writeStore(store);
+
+  publishCloudDelta({
+    type: 'upsert_dept',
+    data: {
+      department_name: row.department_name,
+      slug: row.slug,
+      username: row.username,
+      sender_gmail: row.sender_gmail,
+      gmail_app_password: row.gmail_app_password,
+      login_password: row.login_password,
+      is_configured: row.is_configured,
+      updated_at: row.updated_at
+    }
+  });
+
   return normalizeDepartmentSettingRow(row);
 }
 
@@ -525,9 +719,9 @@ function findActivePendingDuplicate(studentCardNumber, documentType) {
 
 function createDocumentRequest(payload) {
   const store = readStore();
-  const id = crypto.randomUUID();
-  const trackingCode = generateUniqueTrackingCode(store);
-  const createdAt = new Date().toISOString();
+  const id = payload.id || crypto.randomUUID();
+  const trackingCode = payload.tracking_code || generateUniqueTrackingCode(store);
+  const createdAt = payload.created_at || new Date().toISOString();
 
   const newRow = {
     id,
@@ -542,13 +736,19 @@ function createDocumentRequest(payload) {
     degree_level: payload.degree_level ?? null,
     requested_year: payload.requested_year ?? null,
     academic_year: payload.academic_year ?? null,
-    status: 'pending',
-    rejection_reason: null,
+    status: payload.status || 'pending',
+    rejection_reason: payload.rejection_reason ?? null,
     created_at: createdAt
   };
 
   store.document_requests.unshift(newRow);
   writeStore(store);
+
+  publishCloudDelta({
+    type: 'upsert_request',
+    data: newRow
+  });
+
   return normalizeRequestRow(newRow);
 }
 
@@ -561,18 +761,107 @@ function getRequestByIdOrTracking(identifier) {
   return normalizeRequestRow(row);
 }
 
-function updateRequestStatus(identifier, { status, rejectionReason = null }) {
+/**
+ * حماية Auto-Upsert: إذا لم يكن الطلب موجوداً في الذاكرة المحلية للخادم (مثلاً بعد Cold Start)،
+ * يتم إدراجه أو تحديثه تلقائياً من بيانات الطلب المرسلة من واجهة القسم دون إرجاع خطأ 404.
+ */
+function upsertDocumentRequest(identifier, rawPayload = {}) {
+  const store = readStore();
+  const val = String(identifier || rawPayload.id || rawPayload.tracking_code || '').trim();
+
+  let row = (store.document_requests || []).find(
+    r =>
+      (val && (r.id === val || r.tracking_code === val)) ||
+      (rawPayload.id && r.id === rawPayload.id) ||
+      (rawPayload.tracking_code && r.tracking_code === rawPayload.tracking_code)
+  );
+
+  const src = rawPayload.request && typeof rawPayload.request === 'object'
+    ? { ...rawPayload, ...rawPayload.request }
+    : rawPayload;
+
+  if (!row) {
+    const isTrackingCode = /^REQ-/i.test(val);
+    const id = src.id || (!isTrackingCode && val ? val : crypto.randomUUID());
+    const tracking_code =
+      src.tracking_code ||
+      src.trackingCode ||
+      (isTrackingCode ? val : generateUniqueTrackingCode(store));
+
+    row = {
+      id,
+      tracking_code,
+      first_name: String(src.first_name ?? src.firstName ?? 'طالب').trim(),
+      last_name: String(src.last_name ?? src.lastName ?? '').trim(),
+      student_card_number: String(
+        src.student_card_number ?? src.studentCardNumber ?? '—'
+      ).trim(),
+      email: String(src.email ?? '').trim().toLowerCase(),
+      department: String(src.department ?? EXACT_DEPARTMENTS[0]).trim(),
+      bac_year: String(src.bac_year ?? src.bacYear ?? '2024').trim(),
+      document_type: String(src.document_type ?? src.documentType ?? 'شهادة مدرسية').trim(),
+      degree_level:
+        src.degree_level ?? src.degreeLevel ?? src.conditionalDetails?.cycle ?? null,
+      requested_year:
+        src.requested_year ?? src.requestedYear ?? src.conditionalDetails?.targetYear ?? null,
+      academic_year:
+        src.academic_year ?? src.academicYear ?? src.conditionalDetails?.academicYear ?? null,
+      status: src.status || 'pending',
+      rejection_reason: src.rejection_reason ?? src.rejectionReason ?? null,
+      created_at: src.created_at ?? src.createdAt ?? new Date().toISOString()
+    };
+
+    store.document_requests.unshift(row);
+  } else {
+    if (src.first_name || src.firstName) row.first_name = src.first_name || src.firstName;
+    if (src.last_name || src.lastName) row.last_name = src.last_name || src.lastName;
+    if (src.student_card_number || src.studentCardNumber) {
+      row.student_card_number = src.student_card_number || src.studentCardNumber;
+    }
+    if (src.email) row.email = String(src.email).trim().toLowerCase();
+    if (src.department) row.department = src.department;
+    if (src.bac_year || src.bacYear) row.bac_year = src.bac_year || src.bacYear;
+    if (src.document_type || src.documentType) {
+      row.document_type = src.document_type || src.documentType;
+    }
+  }
+
+  writeStore(store);
+
+  publishCloudDelta({
+    type: 'upsert_request',
+    data: row
+  });
+
+  return normalizeRequestRow(row);
+}
+
+function updateRequestStatus(identifier, { status, rejectionReason = null, requestPayload = null }) {
   const store = readStore();
   const val = String(identifier || '').trim();
-  const row = (store.document_requests || []).find(
+  let row = (store.document_requests || []).find(
     r => r.id === val || r.tracking_code === val
   );
+
+  if (!row && requestPayload) {
+    upsertDocumentRequest(val, requestPayload);
+    row = (store.document_requests || []).find(
+      r => r.id === val || r.tracking_code === val
+    );
+  }
+
   if (!row) return null;
 
   row.status = status;
   row.rejection_reason = status === 'rejected' ? String(rejectionReason || '').trim() : null;
 
   writeStore(store);
+
+  publishCloudDelta({
+    type: 'upsert_request',
+    data: row
+  });
+
   return normalizeRequestRow(row);
 }
 
@@ -598,6 +887,12 @@ function saveEmailNotification(notif) {
 
   store.email_notifications.unshift(record);
   writeStore(store);
+
+  publishCloudDelta({
+    type: 'save_notif',
+    data: record
+  });
+
   return record;
 }
 
@@ -623,10 +918,13 @@ function getAllNotifications() {
 
 module.exports = {
   EXACT_DEPARTMENTS,
+  syncFromCloud,
+  publishCloudDelta,
   getAllRequests,
   findActivePendingDuplicate,
   createDocumentRequest,
   getRequestByIdOrTracking,
+  upsertDocumentRequest,
   updateRequestStatus,
   saveEmailNotification,
   getAllNotifications,

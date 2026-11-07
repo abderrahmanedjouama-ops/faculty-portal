@@ -683,8 +683,17 @@ function ensureCurrentDepartmentConfigured() {
 async function handleMarkRequestReady(requestId) {
   if (!ensureCurrentDepartmentConfigured()) return;
 
+  const targetRequest =
+    DeptState.requests.find(r => r.id === requestId || r.tracking_code === requestId) || null;
+
   try {
-    const { request, notification } = await DataRepository.updateRequestStatus(requestId, 'ready');
+    const { request, notification } = await DataRepository.updateRequestStatus(
+      requestId,
+      'ready',
+      '',
+      targetRequest,
+      DeptState.deptSetting
+    );
     await refreshDepartmentData();
 
     showToast({
@@ -766,11 +775,16 @@ async function handleConfirmRejectSubmit(e) {
     return;
   }
 
+  const targetRequest =
+    DeptState.requests.find(r => r.id === requestId || r.tracking_code === requestId) || null;
+
   try {
     const { request, notification } = await DataRepository.updateRequestStatus(
       requestId,
       'rejected',
-      reason
+      reason,
+      targetRequest,
+      DeptState.deptSetting
     );
 
     const modal = document.getElementById('rejectRequestModal');

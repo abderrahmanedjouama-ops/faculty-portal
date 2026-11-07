@@ -4,10 +4,12 @@ const path = require('path');
 const crypto = require('crypto');
 
 const {
+  syncFromCloud,
   getAllRequests,
   findActivePendingDuplicate,
   createDocumentRequest,
   getRequestByIdOrTracking,
+  upsertDocumentRequest,
   updateRequestStatus,
   saveEmailNotification,
   getAllNotifications,
@@ -257,6 +259,11 @@ const app = async (req, res) => {
     });
   }
 
+  // مزامنة تلقائية مع المخزن السحابي الدائم لضمان بقاء الطلبات والإعدادات عبر Cold Starts
+  if (pathname.startsWith('/api/')) {
+    await syncFromCloud();
+  }
+
   // =========================================================================
   // 0. مصادقة الأقسام (Department Login / Session / Logout)
   // =========================================================================
@@ -503,13 +510,36 @@ const app = async (req, res) => {
       const body = await parseBody(req);
       const requestId = body.request_id || body.requestId || body.id;
       const statusType = body.status || 'ready';
-      const targetRequest = getRequestByIdOrTracking(requestId);
+
+      // حماية Auto-Upsert: إذا لم يكن الطلب موجوداً في الذاكرة المحلية، يتم حفظه تلقائياً من البيانات المرسلة
+      let targetRequest = getRequestByIdOrTracking(requestId);
+      if (!targetRequest && (body.request || body.email)) {
+        targetRequest = upsertDocumentRequest(requestId, body);
+      }
       if (!targetRequest) {
         return sendJson(res, 404, {
           ok: false,
           success: false,
           message: 'الطلب غير موجود في قاعدة البيانات.'
         });
+      }
+
+      // حماية Auto-Upsert لإعدادات بريد القسم المرسلة مع الطلب
+      const incomingDeptSetting = body.department_setting || body.deptSetting || null;
+      const fallbackSenderGmail =
+        incomingDeptSetting?.sender_gmail || body.sender_gmail || null;
+      const fallbackAppPass =
+        incomingDeptSetting?.gmail_app_password || body.gmail_app_password || null;
+      if (fallbackSenderGmail && fallbackAppPass) {
+        try {
+          updateDepartmentSettings(targetRequest.department, {
+            sender_gmail: fallbackSenderGmail,
+            gmail_app_password: fallbackAppPass,
+            login_password: incomingDeptSetting?.login_password
+          });
+        } catch {
+          // تجاهل في حال عدم تطابق اسم القسم
+        }
       }
 
       const deptSettings = getDepartmentSettings(targetRequest.department);
@@ -751,13 +781,32 @@ const app = async (req, res) => {
         });
       }
 
-      const targetRequest = getRequestByIdOrTracking(requestIdOrCode);
-      if (!targetRequest) {
-        return sendJson(res, 404, {
-          ok: false,
-          success: false,
-          message: 'الطلب غير موجود في قاعدة البيانات.'
-        });
+      // حماية Auto-Upsert: إذا لم يكن الطلب موجوداً في قاعدة البيانات (مثلاً بعد Cold Start على Netlify)،
+      // يتم حفظه تلقائياً من بيانات الطلب المرسلة في body دون إرجاع خطأ "الطلب غير موجود في قاعدة البيانات"
+      let targetRequest = getRequestByIdOrTracking(requestIdOrCode);
+      if (!targetRequest || body.request || body.email) {
+        targetRequest = upsertDocumentRequest(requestIdOrCode, body);
+      }
+
+      // حماية Auto-Upsert لإعدادات بريد القسم (SMTP) المرسلة في الطلب
+      const incomingDeptSetting = body.department_setting || body.deptSetting || null;
+      const fallbackSenderGmail =
+        incomingDeptSetting?.sender_gmail || body.sender_gmail || null;
+      const fallbackAppPass =
+        incomingDeptSetting?.gmail_app_password || body.gmail_app_password || null;
+      const targetDeptName =
+        incomingDeptSetting?.department_name || targetRequest.department;
+
+      if (fallbackSenderGmail && fallbackAppPass && targetDeptName) {
+        try {
+          updateDepartmentSettings(targetDeptName, {
+            sender_gmail: fallbackSenderGmail,
+            gmail_app_password: fallbackAppPass,
+            login_password: incomingDeptSetting?.login_password
+          });
+        } catch {
+          // تجاهل في حال عدم تطابق اسم القسم
+        }
       }
 
       // التحقق من إعدادات البريد الإلكتروني للقسم في جدول department_settings
@@ -811,7 +860,8 @@ const app = async (req, res) => {
 
       const updatedRequest = updateRequestStatus(requestIdOrCode, {
         status,
-        rejectionReason: status === 'rejected' ? String(rejectionReason).trim() : null
+        rejectionReason: status === 'rejected' ? String(rejectionReason).trim() : null,
+        requestPayload: body
       });
 
       return sendJson(res, 200, {

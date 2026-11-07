@@ -766,11 +766,26 @@ const DataRepository = {
         : '';
     const res = await safeApiFetch(`/api/requests${query}`);
     if (res.isJson && res.ok && Array.isArray(res.data?.requests)) {
-      const normalized = res.data.requests.map(normalizeRecord);
-      if (!departmentFilter || departmentFilter === 'all') {
-        this.saveLocalRequests(normalized);
+      const serverList = res.data.requests.map(normalizeRecord);
+      const localList = this.getLocalRequests();
+      const mergedMap = new Map();
+
+      // البدء بالطلبات المحلية ثم تحديثها أو إضافة طلبات الخادم لضمان عدم ضياع أي طلب
+      localList.forEach(item => {
+        if (item && item.id) mergedMap.set(item.id, item);
+      });
+      serverList.forEach(item => {
+        if (item && item.id) mergedMap.set(item.id, item);
+      });
+
+      let allMerged = Array.from(mergedMap.values());
+      allMerged.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+      this.saveLocalRequests(allMerged);
+
+      if (departmentFilter && departmentFilter !== 'all') {
+        return allMerged.filter(r => r.department === departmentFilter);
       }
-      return normalized;
+      return allMerged;
     }
     let local = this.getLocalRequests();
     if (departmentFilter && departmentFilter !== 'all') {
@@ -853,14 +868,39 @@ const DataRepository = {
     return newReq;
   },
 
-  async updateRequestStatus(requestId, status, rejectionReason = '') {
+  async updateRequestStatus(
+    requestId,
+    status,
+    rejectionReason = '',
+    requestObj = null,
+    deptSettingObj = null
+  ) {
+    const localList = this.getLocalRequests();
+    const resolvedRequest =
+      requestObj ||
+      localList.find(r => r.id === requestId || r.tracking_code === requestId) ||
+      null;
+
+    const deptSettingsList = this.getLocalDepartmentSettings();
+    const resolvedDeptSetting =
+      deptSettingObj ||
+      (resolvedRequest
+        ? deptSettingsList.find(d => d.department_name === resolvedRequest.department)
+        : null) ||
+      null;
+
     const res = await safeApiFetch(`/api/requests/${encodeURIComponent(requestId)}/status`, {
-      method: 'PATCH',
+      method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        ...(resolvedRequest || {}),
         status,
         rejection_reason: rejectionReason,
-        rejectionReason
+        rejectionReason,
+        request: resolvedRequest,
+        department_setting: resolvedDeptSetting,
+        sender_gmail: resolvedDeptSetting?.sender_gmail || undefined,
+        gmail_app_password: resolvedDeptSetting?.gmail_app_password || undefined
       })
     });
 
@@ -881,11 +921,20 @@ const DataRepository = {
 
       const normalized = normalizeRecord(res.data.request);
       const list = this.getLocalRequests();
-      const idx = list.findIndex(r => r.id === requestId || r.tracking_code === requestId);
+      const idx = list.findIndex(
+        r =>
+          r.id === requestId ||
+          r.tracking_code === requestId ||
+          r.id === normalized.id ||
+          r.tracking_code === normalized.tracking_code
+      );
       if (idx !== -1) {
         list[idx] = normalized;
-        this.saveLocalRequests(list);
+      } else {
+        list.unshift(normalized);
       }
+      this.saveLocalRequests(list);
+
       if (res.data.notification) {
         const notifs = this.getLocalNotifications();
         this.saveLocalNotifications([res.data.notification, ...notifs]);
