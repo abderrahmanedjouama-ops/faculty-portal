@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>لوحات تحكم الأقسام | كلية العلوم والتكنولوجيا</title>
+  <link rel="icon" type="image/jpeg" href="/images/fst-logo.jpg" />
+  <link rel="stylesheet" href="/css/styles.css" />
+  <style>
+    .dept-hub-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 1.5rem;
+      margin-top: 1.25rem;
+    }
+    .dept-hub-card {
+      background: var(--white);
+      border: 1px solid var(--gray-200);
+      border-radius: var(--radius-lg);
+      padding: 1.6rem;
+      box-shadow: var(--shadow-md);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 1.25rem;
+      text-decoration: none;
+      color: inherit;
+      transition: all 0.22s ease;
+      position: relative;
+      overflow: hidden;
+    }
+    .dept-hub-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 6px;
+      height: 100%;
+      background: linear-gradient(to bottom, var(--navy-800), var(--gold-500));
+    }
+    .dept-hub-card:hover {
+      transform: translateY(-4px);
+      box-shadow: var(--shadow-lg);
+      border-color: var(--navy-600);
+    }
+    .dept-hub-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 0.75rem;
+    }
+    .dept-route-badge {
+      font-family: monospace;
+      font-size: 0.8rem;
+      font-weight: 700;
+      background: var(--navy-50);
+      color: var(--navy-700);
+      padding: 0.25rem 0.65rem;
+      border-radius: 6px;
+      border: 1px solid var(--navy-100);
+      direction: ltr;
+    }
+    .dept-hub-stats {
+      display: flex;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      padding-top: 0.85rem;
+      border-top: 1px solid var(--gray-100);
+    }
+    .mini-stat {
+      flex: 1;
+      background: var(--gray-50);
+      border: 1px solid var(--gray-200);
+      border-radius: 8px;
+      padding: 0.5rem 0.75rem;
+      text-align: center;
+    }
+    .mini-stat .num {
+      display: block;
+      font-size: 1.2rem;
+      font-weight: 800;
+      color: var(--navy-900);
+    }
+    .mini-stat .lbl {
+      font-size: 0.75rem;
+      color: var(--gray-500);
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- الشريط الرسمي العلوي -->
+  <div class="official-bar">
+    <div class="official-bar-inner">
+      <div>وزارة التعليم العالي والبحث العلمي — كلية العلوم والتكنولوجيا</div>
+      <div class="official-bar-badge">
+        <span>بوابة الإدارة ومصالح التدريس بالأقسام</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- الترويسة الأكاديمية -->
+  <header class="main-header">
+    <div class="header-container">
+      <a href="/admin" class="brand-group">
+        <div class="university-crest">
+          <img src="/images/fst-logo.jpg" alt="شعار كلية العلوم والتكنولوجيا" class="faculty-logo-img" />
+        </div>
+        <div class="brand-titles">
+          <h1>كلية العلوم والتكنولوجيا</h1>
+        </div>
+      </a>
+    </div>
+  </header>
+
+  <main class="main-container">
+    <div class="portal-hero">
+      <div class="portal-hero-text">
+        <h2>الأقسام البيداغوجية الخمسة بالكلية</h2>
+        <p>يمتلك كل قسم لوحة تحكم مستقلة تماماً لعرض طلبات طلبته حصراً، وإعداد بريد Gmail ورمز تطبيق Google الخاص بالقسم.</p>
+      </div>
+    </div>
+
+    <div id="departmentsHubContainer" class="dept-hub-grid">
+      <a href="/admin/automatique" class="dept-hub-card">
+        <div>
+          <div class="dept-hub-top"><span class="dept-route-badge">/admin/automatique</span></div>
+          <h3 style="font-size: 1.22rem; font-weight: 800; color: var(--navy-900); margin: 0.85rem 0 0.35rem;">قسم الآلية والإلكترونيك</h3>
+        </div>
+      </a>
+      <a href="/admin/electrique" class="dept-hub-card">
+        <div>
+          <div class="dept-hub-top"><span class="dept-route-badge">/admin/electrique</span></div>
+          <h3 style="font-size: 1.22rem; font-weight: 800; color: var(--navy-900); margin: 0.85rem 0 0.35rem;">قسم الهندسة الكهربائية</h3>
+        </div>
+      </a>
+      <a href="/admin/tronc-commun" class="dept-hub-card">
+        <div>
+          <div class="dept-hub-top"><span class="dept-route-badge">/admin/tronc-commun</span></div>
+          <h3 style="font-size: 1.22rem; font-weight: 800; color: var(--navy-900); margin: 0.85rem 0 0.35rem;">قسم جذع مشترك (خاص بالسنة الأولى)</h3>
+        </div>
+      </a>
+      <a href="/admin/procedes" class="dept-hub-card">
+        <div>
+          <div class="dept-hub-top"><span class="dept-route-badge">/admin/procedes</span></div>
+          <h3 style="font-size: 1.22rem; font-weight: 800; color: var(--navy-900); margin: 0.85rem 0 0.35rem;">قسم هندسة الطرائق</h3>
+        </div>
+      </a>
+      <a href="/admin/mecanique" class="dept-hub-card">
+        <div>
+          <div class="dept-hub-top"><span class="dept-route-badge">/admin/mecanique</span></div>
+          <h3 style="font-size: 1.22rem; font-weight: 800; color: var(--navy-900); margin: 0.85rem 0 0.35rem;">قسم الميكانيك</h3>
+        </div>
+      </a>
+    </div>
+  </main>
+
+  <footer class="main-footer">
+    <div class="footer-inner">
+      <div>© 2026 كلية العلوم والتكنولوجيا — لوحات تحكم الأقسام البيداغوجية.</div>
+    </div>
+  </footer>
+
+  <script src="/js/data.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', async () => {
+      const container = document.getElementById('departmentsHubContainer');
+      const [requests, settings] = await Promise.all([
+        DataRepository.fetchRequests(),
+        DataRepository.fetchDepartmentSettings()
+      ]);
+
+      const routesList = Object.values(PORTAL_CONSTANTS.DEPARTMENT_ROUTES);
+      container.innerHTML = routesList
+        .map(dept => {
+          const deptReqs = requests.filter(r => r.department === dept.name);
+          const pendingCount = deptReqs.filter(r => r.status === 'pending').length;
+          const readyCount = deptReqs.filter(r => r.status === 'ready').length;
+          const cfg = settings.find(s => s.department_name === dept.name);
+          const isConfigured = Boolean(cfg && cfg.is_configured && cfg.sender_gmail);
+
+          return `
+            <a href="${dept.path}" class="dept-hub-card">
+              <div>
+                <div class="dept-hub-top">
+                  <span class="dept-route-badge">${dept.path}</span>
+                  <span class="status-badge ${isConfigured ? 'ready' : 'pending'}" style="font-size: 0.75rem;">
+                    ${isConfigured ? '✓ البريد مفعل' : '⚠️ البريد غير معد'}
+                  </span>
+                </div>
+                <h3 style="font-size: 1.22rem; font-weight: 800; color: var(--navy-900); margin: 0.85rem 0 0.35rem;">
+                  ${dept.name}
+                </h3>
+                <p style="font-size: 0.88rem; color: var(--gray-600);">
+                  ${dept.subtitle}
+                </p>
+              </div>
+
+              <div>
+                <div class="dept-hub-stats">
+                  <div class="mini-stat">
+                    <span class="num">${deptReqs.length}</span>
+                    <span class="lbl">إجمالي الطلبات</span>
+                  </div>
+                  <div class="mini-stat">
+                    <span class="num" style="color: var(--amber-700);">${pendingCount}</span>
+                    <span class="lbl">قيد الانتظار</span>
+                  </div>
+                  <div class="mini-stat">
+                    <span class="num" style="color: var(--green-700);">${readyCount}</span>
+                    <span class="lbl">جاهزة للاستلام</span>
+                  </div>
+                </div>
+
+                <div style="margin-top: 1rem; display: flex; justify-content: flex-end;">
+                  <span class="btn btn-primary btn-sm" style="width: 100%;">
+                    <span>الدخول إلى لوحة تحكم القسم</span>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+                  </span>
+                </div>
+              </div>
+            </a>
+          `;
+        })
+        .join('');
+    });
+  </script>
+</body>
+</html>
