@@ -1,0 +1,27 @@
+{
+  "name": "university-documents-portal",
+  "version": "1.0.0",
+  "description": "بوابة رقمية لطلب الوثائق البيداغوجية والإدارية الخاصة بكلية العلوم والتكنولوجيا",
+  "main": "server.js",
+  "scripts": {
+    "build": "node scripts/build.js",
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "keywords": [
+    "university",
+    "portal",
+    "arabic",
+    "rtl",
+    "academic-documents",
+    "fullstack"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "nodemailer": "^10.3.1",
+    "serverless-http": "^4.0.0"
+  }
+}
