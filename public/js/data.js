@@ -580,6 +580,19 @@ const DataRepository = {
 
   getLocalAuthSession() {
     try {
+      const sessAuth = sessionStorage.getItem('isAuthenticated');
+      const sessDept = sessionStorage.getItem('currentDepartment');
+      if (sessAuth === 'true' && sessDept) {
+        const routes = PORTAL_CONSTANTS.DEPARTMENT_ROUTES || {};
+        const matched = routes[sessDept] || {};
+        return {
+          slug: sessDept,
+          username: matched.username || sessDept,
+          department_name: matched.name || sessDept,
+          redirect_url: `/admin/${sessDept}`,
+          logged_in_at: new Date().toISOString()
+        };
+      }
       const raw = localStorage.getItem(STORAGE_KEYS.AUTH_SESSION);
       return raw ? JSON.parse(raw) : null;
     } catch {
@@ -590,8 +603,18 @@ const DataRepository = {
   saveLocalAuthSession(session) {
     if (!session) {
       localStorage.removeItem(STORAGE_KEYS.AUTH_SESSION);
+      try {
+        sessionStorage.removeItem('currentDepartment');
+        sessionStorage.removeItem('isAuthenticated');
+      } catch {}
     } else {
       localStorage.setItem(STORAGE_KEYS.AUTH_SESSION, JSON.stringify(session));
+      if (session.slug) {
+        try {
+          sessionStorage.setItem('currentDepartment', session.slug);
+          sessionStorage.setItem('isAuthenticated', 'true');
+        } catch {}
+      }
     }
   },
 
