@@ -1,10 +1,7 @@
 /**
- * هيكلة البيانات المشتركة والثوابت الأكاديمية وطبقة الاتصال المباشر بـ Firebase Realtime Database + API
- * البوابة الرقمية لطلب الوثائق البيداغوجية والإدارية — كلية العلوم والتكنولوجيا
+ * هيكلة البيانات المشتركة والثوابت الأكاديمية وطبقة الاتصال الآمن بـ API
+ * البوابة الرقمية لطلب الوثائق البيداغوجية والإدارية
  */
-
-const FIREBASE_DB_URL =
-  'https://faculty-portal-6148c-default-rtdb.europe-west1.firebasedatabase.app';
 
 const PORTAL_CONSTANTS = {
   // خريطة المسارات المستقلة للأقسام الخمسة (Standalone Department Routes)
@@ -134,44 +131,8 @@ function stripAppPasswordSpaces(rawPassword) {
 }
 
 /**
- * دالة اتصال مباشر بقاعدة بيانات Firebase Realtime Database عبر واجهة REST القياسية
- */
-async function firebaseFetch(subPath, method = 'GET', bodyObj = null, timeoutMs = 4500) {
-  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-  const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
-
-  try {
-    const response = await fetch(`${FIREBASE_DB_URL}${subPath}`, {
-      method,
-      headers: {
-        Accept: 'application/json',
-        ...(bodyObj !== null ? { 'Content-Type': 'application/json' } : {})
-      },
-      body: bodyObj !== null ? JSON.stringify(bodyObj) : undefined,
-      signal: controller ? controller.signal : undefined
-    });
-
-    if (timer) clearTimeout(timer);
-    if (!response.ok) {
-      return { ok: false, status: response.status, data: null };
-    }
-    const data = await response.json();
-    return { ok: true, status: response.status, data };
-  } catch {
-    if (timer) clearTimeout(timer);
-    return { ok: false, status: 0, data: null };
-  }
-}
-
-function firebaseNodeToArray(node) {
-  if (!node) return [];
-  if (Array.isArray(node)) return node.filter(Boolean);
-  if (typeof node === 'object') return Object.values(node).filter(Boolean);
-  return [];
-}
-
-/**
- * دالة اتصال آمنة بالخادم (Safe JSON Fetch) مع مهلة زمنية سريعة
+ * دالة اتصال آمنة بالخادم (Safe JSON Fetch)
+ * تتحقق من Content-Type قبل استدعاء response.json() لمنع خطأ Unexpected token '<'
  */
 async function safeApiFetch(apiPath, options = {}) {
   const candidateOrigins = [''];
@@ -190,19 +151,13 @@ async function safeApiFetch(apiPath, options = {}) {
     ...(options.headers || {})
   };
 
-  const timeoutMs = options.timeoutMs || 8000;
-
   for (const origin of candidateOrigins) {
-    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-    const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
     try {
       const response = await fetch(`${origin}${apiPath}`, {
         credentials: 'same-origin',
         ...options,
-        headers: mergedHeaders,
-        signal: controller ? controller.signal : undefined
+        headers: mergedHeaders
       });
-      if (timer) clearTimeout(timer);
 
       const contentType = (response.headers.get('content-type') || '').toLowerCase();
       if (contentType.includes('application/json')) {
@@ -216,7 +171,7 @@ async function safeApiFetch(apiPath, options = {}) {
         };
       }
     } catch {
-      if (timer) clearTimeout(timer);
+      // الانتقال للمنفذ التالي أو الوضع المحلي
     }
   }
 
@@ -534,37 +489,6 @@ function generateClientUuid() {
   });
 }
 
-function normalizeDeptSettingObject(raw) {
-  if (!raw) return null;
-  const routes = Object.values(PORTAL_CONSTANTS.DEPARTMENT_ROUTES);
-  const matchedRoute =
-    routes.find(
-      r =>
-        r.slug === raw.slug ||
-        r.name === raw.department_name ||
-        r.username === raw.username
-    ) || {};
-
-  const slug = raw.slug || matchedRoute.slug || '';
-  const cleanPass = stripAppPasswordSpaces(raw.gmail_app_password || '');
-  const cleanEmail = String(raw.sender_gmail || '').trim().toLowerCase() || null;
-  const isConfigured = Boolean(cleanEmail && cleanPass && cleanPass.length === 16);
-
-  return {
-    id: raw.id || `dept-${slug}`,
-    department_name: raw.department_name || matchedRoute.name || '',
-    slug,
-    username: raw.username || matchedRoute.username || slug,
-    route: `/admin/${slug}`,
-    login_password: raw.login_password || matchedRoute.defaultPassword || '',
-    default_password: matchedRoute.defaultPassword || raw.default_password || '',
-    sender_gmail: cleanEmail,
-    gmail_app_password: cleanPass || null,
-    is_configured: isConfigured,
-    updated_at: raw.updated_at || new Date().toISOString()
-  };
-}
-
 const DataRepository = {
   initLocalStore() {
     if (!localStorage.getItem(STORAGE_KEYS.REQUESTS)) {
@@ -580,18 +504,11 @@ const DataRepository = {
 
   getLocalAuthSession() {
     try {
-      const sessAuth = sessionStorage.getItem('isAuthenticated');
-      const sessDept = sessionStorage.getItem('currentDepartment');
-      if (sessAuth === 'true' && sessDept) {
-        const routes = PORTAL_CONSTANTS.DEPARTMENT_ROUTES || {};
-        const matched = routes[sessDept] || {};
-        return {
-          slug: sessDept,
-          username: matched.username || sessDept,
-          department_name: matched.name || sessDept,
-          redirect_url: `/admin/${sessDept}`,
-          logged_in_at: new Date().toISOString()
-        };
+      const sessionRaw =
+        sessionStorage.getItem('dept_session') ||
+        sessionStorage.getItem(STORAGE_KEYS.AUTH_SESSION);
+      if (sessionRaw) {
+        return JSON.parse(sessionRaw);
       }
       const raw = localStorage.getItem(STORAGE_KEYS.AUTH_SESSION);
       return raw ? JSON.parse(raw) : null;
@@ -602,25 +519,17 @@ const DataRepository = {
 
   saveLocalAuthSession(session) {
     if (!session) {
+      sessionStorage.removeItem('dept_session');
+      sessionStorage.removeItem(STORAGE_KEYS.AUTH_SESSION);
       localStorage.removeItem(STORAGE_KEYS.AUTH_SESSION);
-      try {
-        sessionStorage.removeItem('currentDepartment');
-        sessionStorage.removeItem('isAuthenticated');
-      } catch {}
     } else {
-      localStorage.setItem(STORAGE_KEYS.AUTH_SESSION, JSON.stringify(session));
-      if (session.slug) {
-        try {
-          sessionStorage.setItem('currentDepartment', session.slug);
-          sessionStorage.setItem('isAuthenticated', 'true');
-        } catch {}
-      }
+      const jsonStr = JSON.stringify(session);
+      sessionStorage.setItem('dept_session', jsonStr);
+      sessionStorage.setItem(STORAGE_KEYS.AUTH_SESSION, jsonStr);
+      localStorage.setItem(STORAGE_KEYS.AUTH_SESSION, jsonStr);
     }
   },
 
-  /**
-   * تسجيل دخول القسم مع دعم فوري لـ Firebase Realtime Database والخادم والنسخة الاحتياطية للأقسام الخمسة
-   */
   async loginDepartment({ identifier, password }) {
     const cleanId = String(identifier || '').trim();
     const cleanPass = String(password || '').trim();
@@ -629,49 +538,6 @@ const DataRepository = {
       throw new Error('يرجى إدخال اسم المستخدم للقسم وكلمة المرور.');
     }
 
-    // 1. جلب أحدث إعدادات الأقسام من Firebase Realtime Database (أو زرعها تلقائياً إذا كانت فارغة)
-    const deptSettings = await this.fetchDepartmentSettings();
-    const lowerId = cleanId.toLowerCase();
-
-    const matchedDept = deptSettings.find(
-      d =>
-        String(d.slug || '').toLowerCase() === lowerId ||
-        String(d.username || '').toLowerCase() === lowerId ||
-        d.department_name === cleanId
-    );
-
-    if (matchedDept) {
-      const validPass =
-        cleanPass === matchedDept.login_password ||
-        cleanPass === matchedDept.default_password;
-
-      if (validPass) {
-        const session = {
-          slug: matchedDept.slug,
-          username: matchedDept.username || matchedDept.slug,
-          department_name: matchedDept.department_name,
-          redirect_url: `/admin/${matchedDept.slug}`,
-          logged_in_at: new Date().toISOString()
-        };
-        this.saveLocalAuthSession(session);
-
-        // محاولة تسجيل جلسة الكوكي على الخادم في الخلفية (بمهلة قصيرة حتى لا يتأخر التوجيه)
-        safeApiFetch('/api/auth/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            identifier: cleanId,
-            username: cleanId,
-            password: cleanPass
-          }),
-          timeoutMs: 2200
-        }).catch(() => {});
-
-        return session;
-      }
-    }
-
-    // 2. التحقق عبر الخادم في حال تم تغيير كلمة المرور على الخادم فقط
     const res = await safeApiFetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -679,45 +545,69 @@ const DataRepository = {
         identifier: cleanId,
         username: cleanId,
         password: cleanPass
-      }),
-      timeoutMs: 3000
+      })
     });
 
-    if (res.isJson && res.ok && res.data?.ok && res.data?.session) {
+    if (res.isJson) {
+      if (!res.ok || !res.data?.ok) {
+        throw new Error(res.data?.message || 'بيانات الدخول غير صحيحة.');
+      }
       const session = res.data.session;
       this.saveLocalAuthSession(session);
       return session;
     }
 
-    throw new Error('اسم المستخدم أو كلمة المرور غير صحيحة.');
+    // Fallback محلي
+    const settings = this.getLocalDepartmentSettings();
+    const matched = settings.find(
+      d =>
+        d.slug === cleanId.toLowerCase() ||
+        d.username === cleanId.toLowerCase() ||
+        d.department_name === cleanId
+    );
+    const expectedPass = matched?.login_password || matched?.default_password;
+    if (!matched || cleanPass !== expectedPass) {
+      throw new Error('اسم المستخدم أو كلمة المرور غير صحيحة.');
+    }
+
+    const session = {
+      slug: matched.slug,
+      username: matched.username || matched.slug,
+      department_name: matched.department_name,
+      redirect_url: `/admin/${matched.slug}`,
+      logged_in_at: new Date().toISOString()
+    };
+    this.saveLocalAuthSession(session);
+    return session;
   },
 
   async getAuthSession() {
-    const localSess = this.getLocalAuthSession();
-    if (localSess && localSess.slug) {
-      return localSess;
+    const res = await safeApiFetch('/api/auth/session');
+    if (res.isJson && res.ok) {
+      if (res.data?.authenticated && res.data?.session) {
+        this.saveLocalAuthSession(res.data.session);
+        return res.data.session;
+      }
+      // إذا كان لدينا جلسة محلية صالحة نتحقق منها
+      const localSess = this.getLocalAuthSession();
+      if (localSess && localSess.slug) {
+        return localSess;
+      }
+      return null;
     }
-
-    const res = await safeApiFetch('/api/auth/session', { timeoutMs: 2500 });
-    if (res.isJson && res.ok && res.data?.authenticated && res.data?.session) {
-      this.saveLocalAuthSession(res.data.session);
-      return res.data.session;
-    }
-    return null;
+    return this.getLocalAuthSession();
   },
 
   async logoutDepartment() {
     this.saveLocalAuthSession(null);
-    await safeApiFetch('/api/auth/logout', { method: 'POST', timeoutMs: 2000 });
+    await safeApiFetch('/api/auth/logout', { method: 'POST' });
   },
 
   getLocalDepartmentSettings() {
     this.initLocalStore();
     try {
       const parsed = JSON.parse(localStorage.getItem(STORAGE_KEYS.DEPT_SETTINGS));
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed.map(normalizeDeptSettingObject).filter(Boolean);
-      }
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
       return [...INITIAL_DEPARTMENT_SETTINGS];
     } catch {
       return [...INITIAL_DEPARTMENT_SETTINGS];
@@ -725,46 +615,11 @@ const DataRepository = {
   },
 
   saveLocalDepartmentSettings(list) {
-    localStorage.setItem(
-      STORAGE_KEYS.DEPT_SETTINGS,
-      JSON.stringify((list || []).map(normalizeDeptSettingObject).filter(Boolean))
-    );
+    localStorage.setItem(STORAGE_KEYS.DEPT_SETTINGS, JSON.stringify(list));
   },
 
-  /**
-   * جلب إعدادات الأقسام الخمسة من Firebase Realtime Database (وزرعها تلقائياً إذا كانت فارغة)
-   */
   async fetchDepartmentSettings() {
-    const fbRes = await firebaseFetch('/department_settings.json', 'GET');
-    if (fbRes.ok) {
-      const fbList = firebaseNodeToArray(fbRes.data)
-        .map(normalizeDeptSettingObject)
-        .filter(Boolean);
-
-      if (fbList.length === 0) {
-        // زرع حسابات الأقسام الخمسة في Firebase تلقائياً إذا كانت فارغة
-        const seedMap = {};
-        const localSeed = this.getLocalDepartmentSettings();
-        localSeed.forEach(d => {
-          seedMap[d.slug] = normalizeDeptSettingObject(d);
-        });
-        await firebaseFetch('/department_settings.json', 'PUT', seedMap);
-        this.saveLocalDepartmentSettings(localSeed);
-        return localSeed;
-      }
-
-      // دمج الأقسام الخمسة لضمان وجودها جميعاً
-      const bySlug = new Map(fbList.map(d => [d.slug, d]));
-      const merged = INITIAL_DEPARTMENT_SETTINGS.map(def => {
-        const existing = bySlug.get(def.slug);
-        return existing ? normalizeDeptSettingObject({ ...def, ...existing }) : def;
-      });
-
-      this.saveLocalDepartmentSettings(merged);
-      return merged;
-    }
-
-    const res = await safeApiFetch('/api/department-settings', { timeoutMs: 3500 });
+    const res = await safeApiFetch('/api/department-settings');
     if (res.isJson && res.ok && Array.isArray(res.data?.settings)) {
       this.saveLocalDepartmentSettings(res.data.settings);
       return res.data.settings;
@@ -772,9 +627,6 @@ const DataRepository = {
     return this.getLocalDepartmentSettings();
   },
 
-  /**
-   * حفظ إعدادات البريد الإلكتروني (Gmail + App Password) وكلمة مرور القسم مباشرة في Firebase والخادم
-   */
   async saveDepartmentSetting(
     department_name,
     { sender_gmail, gmail_app_password, login_password }
@@ -795,30 +647,47 @@ const DataRepository = {
     }
 
     if ((cleanEmail && !cleanPass) || (!cleanEmail && cleanPass)) {
-      throw new Error(
-        'لإعداد البريد الإلكتروني للقسم يرجى إدخال كل من عنوان Gmail ورمز التطبيق المكون من 16 حرفاً معاً.'
-      );
+      throw new Error('لإعداد البريد الإلكتروني للقسم يرجى إدخال كل من عنوان Gmail ورمز التطبيق المكون من 16 حرفاً معاً.');
     }
 
     if (cleanLoginPass !== undefined && cleanLoginPass.length < 4) {
       throw new Error('كلمة مرور تسجيل الدخول للقسم يجب أن تتكون من 4 أحرف أو أرقام على الأقل.');
     }
 
-    const list = await this.fetchDepartmentSettings();
-    const idx = list.findIndex(
-      d => d.department_name === department_name || d.slug === department_name
-    );
-    const prev = idx !== -1 ? list[idx] : INITIAL_DEPARTMENT_SETTINGS[0];
+    const res = await safeApiFetch('/api/department-settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        department_name,
+        sender_gmail: cleanEmail,
+        gmail_app_password: cleanPass,
+        login_password: cleanLoginPass
+      })
+    });
 
-    const updatedItem = normalizeDeptSettingObject({
+    if (res.isJson) {
+      if (!res.ok || !res.data?.ok) {
+        throw new Error(res.data?.message || 'تعذر حفظ إعدادات القسم.');
+      }
+      if (Array.isArray(res.data.settings)) {
+        this.saveLocalDepartmentSettings(res.data.settings);
+      }
+      return res.data.setting;
+    }
+
+    const list = this.getLocalDepartmentSettings();
+    const idx = list.findIndex(d => d.department_name === department_name);
+    const prev = idx !== -1 ? list[idx] : {};
+    const updatedItem = {
       ...prev,
-      department_name: prev.department_name || department_name,
+      id: prev.id || generateClientUuid(),
+      department_name,
       sender_gmail: cleanEmail || null,
       gmail_app_password: cleanPass || null,
-      login_password: cleanLoginPass || prev.login_password || prev.default_password,
+      login_password: cleanLoginPass || prev.login_password || 'dept2026',
       is_configured: Boolean(cleanEmail && cleanPass && cleanPass.length === 16),
       updated_at: new Date().toISOString()
-    });
+    };
 
     if (idx !== -1) {
       list[idx] = updatedItem;
@@ -826,27 +695,6 @@ const DataRepository = {
       list.push(updatedItem);
     }
     this.saveLocalDepartmentSettings(list);
-
-    // 1. حفظ مباشر في Firebase Realtime Database
-    await firebaseFetch(
-      `/department_settings/${encodeURIComponent(updatedItem.slug)}.json`,
-      'PUT',
-      updatedItem
-    );
-
-    // 2. مزامنة مع الخادم
-    await safeApiFetch('/api/department-settings', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        department_name: updatedItem.department_name,
-        sender_gmail: cleanEmail,
-        gmail_app_password: cleanPass,
-        login_password: updatedItem.login_password
-      }),
-      timeoutMs: 4000
-    });
-
     return updatedItem;
   },
 
@@ -871,8 +719,7 @@ const DataRepository = {
         department_name,
         sender_gmail: cleanEmail,
         gmail_app_password: cleanPass
-      }),
-      timeoutMs: 12000
+      })
     });
 
     if (res.isJson) {
@@ -881,10 +728,9 @@ const DataRepository = {
           res.data?.message || 'فشل إرسال الرسالة التجريبية، يرجى التحقق من رمز التطبيق.'
         );
       }
-      await this.saveDepartmentSetting(department_name, {
-        sender_gmail: cleanEmail,
-        gmail_app_password: cleanPass
-      });
+      if (Array.isArray(res.data.settings)) {
+        this.saveLocalDepartmentSettings(res.data.settings);
+      }
       if (res.data.notification) {
         const notifs = this.getLocalNotifications();
         this.saveLocalNotifications([res.data.notification, ...notifs]);
@@ -892,24 +738,23 @@ const DataRepository = {
       return res.data;
     }
 
-    throw new Error('تعذر الاتصال بخادم البريد لإرسال الرسالة التجريبية.');
+    throw new Error(
+      'خادم Node.js غير متصل حالياً لإرسال البريد عبر Nodemailer (smtp.gmail.com:465). يرجى التأكد من تشغيل node server.js.'
+    );
   },
 
   getLocalRequests() {
     this.initLocalStore();
     try {
       const list = JSON.parse(localStorage.getItem(STORAGE_KEYS.REQUESTS)) || [];
-      return list.map(normalizeRecord).filter(Boolean);
+      return list.map(normalizeRecord);
     } catch {
       return [...INITIAL_SEED_REQUESTS];
     }
   },
 
   saveLocalRequests(list) {
-    localStorage.setItem(
-      STORAGE_KEYS.REQUESTS,
-      JSON.stringify((list || []).map(normalizeRecord).filter(Boolean))
-    );
+    localStorage.setItem(STORAGE_KEYS.REQUESTS, JSON.stringify(list.map(normalizeRecord)));
   },
 
   getLocalNotifications() {
@@ -925,52 +770,34 @@ const DataRepository = {
     localStorage.setItem(STORAGE_KEYS.NOTIFICATIONS, JSON.stringify(list));
   },
 
-  /**
-   * جلب جميع الطلبات مباشرة من Firebase Realtime Database (`requests.json`)
-   */
   async fetchRequests(departmentFilter = null) {
-    const fbRes = await firebaseFetch('/requests.json', 'GET');
-    if (fbRes.ok) {
-      const fbList = firebaseNodeToArray(fbRes.data).map(normalizeRecord).filter(Boolean);
-
-      if (fbList.length === 0 && !fbRes.data) {
-        // إذا كانت قاعدة بيانات Firebase فارغة تماماً، نقوم بزرع الطلبات الأولية
-        const seedMap = {};
-        INITIAL_SEED_REQUESTS.forEach(r => {
-          seedMap[r.id] = r;
-        });
-        await firebaseFetch('/requests.json', 'PUT', seedMap);
-        this.saveLocalRequests(INITIAL_SEED_REQUESTS);
-        if (departmentFilter && departmentFilter !== 'all') {
-          return INITIAL_SEED_REQUESTS.filter(r => r.department === departmentFilter);
-        }
-        return [...INITIAL_SEED_REQUESTS];
-      }
-
-      fbList.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-      this.saveLocalRequests(fbList);
-
-      if (departmentFilter && departmentFilter !== 'all') {
-        return fbList.filter(r => r.department === departmentFilter);
-      }
-      return fbList;
-    }
-
-    // في حال تعذر الوصول المباشر لـ Firebase، الجلب من الخادم
     const query =
       departmentFilter && departmentFilter !== 'all'
         ? `?department=${encodeURIComponent(departmentFilter)}`
         : '';
-    const res = await safeApiFetch(`/api/requests${query}`, { timeoutMs: 4000 });
+    const res = await safeApiFetch(`/api/requests${query}`);
     if (res.isJson && res.ok && Array.isArray(res.data?.requests)) {
-      const serverList = res.data.requests.map(normalizeRecord).filter(Boolean);
-      this.saveLocalRequests(serverList);
-      if (departmentFilter && departmentFilter !== 'all') {
-        return serverList.filter(r => r.department === departmentFilter);
-      }
-      return serverList;
-    }
+      const serverList = res.data.requests.map(normalizeRecord);
+      const localList = this.getLocalRequests();
+      const mergedMap = new Map();
 
+      // البدء بالطلبات المحلية ثم تحديثها أو إضافة طلبات الخادم لضمان عدم ضياع أي طلب
+      localList.forEach(item => {
+        if (item && item.id) mergedMap.set(item.id, item);
+      });
+      serverList.forEach(item => {
+        if (item && item.id) mergedMap.set(item.id, item);
+      });
+
+      let allMerged = Array.from(mergedMap.values());
+      allMerged.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+      this.saveLocalRequests(allMerged);
+
+      if (departmentFilter && departmentFilter !== 'all') {
+        return allMerged.filter(r => r.department === departmentFilter);
+      }
+      return allMerged;
+    }
     let local = this.getLocalRequests();
     if (departmentFilter && departmentFilter !== 'all') {
       local = local.filter(r => r.department === departmentFilter);
@@ -979,17 +806,41 @@ const DataRepository = {
     return local;
   },
 
-  /**
-   * إنشاء طلب وثيقة جديد وحفظه مباشرة في Firebase Realtime Database (`requests.json`) وفي الخادم
-   */
   async createRequest(payload) {
-    const existingList = await this.fetchRequests();
+    const res = await safeApiFetch('/api/requests', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    if (res.isJson) {
+      if (res.status === 409 || res.data?.code === 'DUPLICATE_PENDING_REQUEST') {
+        const err = new Error(
+          res.data?.message ||
+            'عذراً، لديكم بالفعل طلب قيد المعالجة لنفس الوثيقة ونفس رقم بطاقة الطالب.'
+        );
+        err.isDuplicatePending = true;
+        err.existingRequest = res.data?.existingRequest
+          ? normalizeRecord(res.data.existingRequest)
+          : null;
+        throw err;
+      }
+      if (!res.ok || !res.data?.ok) {
+        throw new Error(res.data?.message || 'تعذر حفظ الطلب.');
+      }
+      const created = normalizeRecord(res.data.request);
+      const current = this.getLocalRequests();
+      this.saveLocalRequests([created, ...current.filter(r => r.id !== created.id)]);
+      return created;
+    }
+
+    const list = this.getLocalRequests();
     const cardNo = String(payload.student_card_number ?? payload.studentCardNumber ?? '').trim();
     const docType = String(payload.document_type ?? payload.documentType ?? '').trim();
 
-    const duplicate = existingList.find(
+    const duplicate = list.find(
       r =>
-        String(r.student_card_number || '').trim().toLowerCase() === cardNo.toLowerCase() &&
+        r.student_card_number.toLowerCase() === cardNo.toLowerCase() &&
         r.document_type === docType &&
         r.status === 'pending'
     );
@@ -1004,62 +855,30 @@ const DataRepository = {
     }
 
     const now = new Date().toISOString();
-    const existingCodes = new Set(
-      existingList.map(r => String(r.tracking_code || '').toUpperCase())
-    );
-    let trackingCode = `REQ-${Math.floor(1000 + Math.random() * 9000)}`;
-    while (existingCodes.has(trackingCode)) {
-      trackingCode = `REQ-${Math.floor(1000 + Math.random() * 9000)}`;
-    }
-
+    const randomNum = Math.floor(1000 + Math.random() * 9000);
     const newReq = normalizeRecord({
       id: generateClientUuid(),
-      tracking_code: trackingCode,
-      first_name: String(payload.first_name ?? payload.firstName ?? '').trim(),
-      last_name: String(payload.last_name ?? payload.lastName ?? '').trim(),
+      tracking_code: `REQ-${randomNum}`,
+      first_name: payload.first_name ?? payload.firstName,
+      last_name: payload.last_name ?? payload.lastName,
       student_card_number: cardNo,
-      email: String(payload.email ?? '').trim().toLowerCase(),
-      department: String(payload.department ?? '').trim(),
-      bac_year: String(payload.bac_year ?? payload.bacYear ?? '').trim(),
+      email: payload.email,
+      department: payload.department,
+      bac_year: payload.bac_year ?? payload.bacYear,
       document_type: docType,
-      degree_level:
-        payload.degree_level ?? payload.degreeLevel ?? payload.conditionalDetails?.cycle ?? null,
-      requested_year:
-        payload.requested_year ??
-        payload.requestedYear ??
-        payload.conditionalDetails?.targetYear ??
-        null,
-      academic_year:
-        payload.academic_year ??
-        payload.academicYear ??
-        payload.conditionalDetails?.academicYear ??
-        null,
+      degree_level: payload.degree_level ?? payload.conditionalDetails?.cycle ?? null,
+      requested_year: payload.requested_year ?? payload.conditionalDetails?.targetYear ?? null,
+      academic_year: payload.academic_year ?? payload.conditionalDetails?.academicYear ?? null,
       status: 'pending',
       rejection_reason: null,
       created_at: now
     });
 
-    // 1. حفظ مباشر في Firebase Realtime Database
-    await firebaseFetch(`/requests/${encodeURIComponent(newReq.id)}.json`, 'PUT', newReq);
-
-    // 2. تحديث الذاكرة المحلية
-    this.saveLocalRequests([newReq, ...existingList.filter(r => r.id !== newReq.id)]);
-
-    // 3. مزامنة مع الخادم في الخلفية
-    safeApiFetch('/api/requests', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newReq),
-      timeoutMs: 3500
-    }).catch(() => {});
-
+    list.unshift(newReq);
+    this.saveLocalRequests(list);
     return newReq;
   },
 
-  /**
-   * تحديث حالة الطلب ("تأكيد الجاهزية" / "رفض الطلب") مباشرة في Firebase Realtime Database
-   * وإرسال إشعار Gmail للطالب عبر نقطة النهاية /api/requests/:id/status مع Auto-Upsert كامل
-   */
   async updateRequestStatus(
     requestId,
     status,
@@ -1067,133 +886,121 @@ const DataRepository = {
     requestObj = null,
     deptSettingObj = null
   ) {
-    const allRequests = await this.fetchRequests();
+    const localList = this.getLocalRequests();
     const resolvedRequest =
       requestObj ||
-      allRequests.find(r => r.id === requestId || r.tracking_code === requestId) ||
-      this.getLocalRequests().find(r => r.id === requestId || r.tracking_code === requestId) ||
+      localList.find(r => r.id === requestId || r.tracking_code === requestId) ||
       null;
 
-    if (!resolvedRequest) {
-      throw new Error('تعذر العثور على بيانات الطلب.');
-    }
-
-    const deptSettingsList = await this.fetchDepartmentSettings();
+    const deptSettingsList = this.getLocalDepartmentSettings();
     const resolvedDeptSetting =
       deptSettingObj ||
-      deptSettingsList.find(d => d.department_name === resolvedRequest.department) ||
+      (resolvedRequest
+        ? deptSettingsList.find(d => d.department_name === resolvedRequest.department)
+        : null) ||
       null;
 
-    if (
-      (status === 'ready' || status === 'rejected') &&
-      (!resolvedDeptSetting ||
-        !resolvedDeptSetting.is_configured ||
-        !resolvedDeptSetting.sender_gmail ||
-        !resolvedDeptSetting.gmail_app_password)
-    ) {
-      const err = new Error(
-        'يرجى إدخال البريد الإلكتروني للقسم ورمز التطبيق في خانة الإعدادات أولاً قبل إرسال الإشعارات'
-      );
-      err.isDeptEmailUnconfigured = true;
-      err.department = resolvedRequest.department;
-      throw err;
-    }
+    const res = await safeApiFetch(`/api/requests/${encodeURIComponent(requestId)}/status`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...(resolvedRequest || {}),
+        status,
+        rejection_reason: rejectionReason,
+        rejectionReason,
+        request: resolvedRequest,
+        department_setting: resolvedDeptSetting,
+        sender_gmail: resolvedDeptSetting?.sender_gmail || undefined,
+        gmail_app_password: resolvedDeptSetting?.gmail_app_password || undefined
+      })
+    });
 
-    // 1. استدعاء الخادم لإرسال بريد Gmail الفعلي عبر Nodemailer وتحديث قاعدة البيانات
-    const res = await safeApiFetch(
-      `/api/requests/${encodeURIComponent(resolvedRequest.id || requestId)}/status`,
-      {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...resolvedRequest,
-          status,
-          rejection_reason: status === 'rejected' ? rejectionReason : null,
-          rejectionReason: status === 'rejected' ? rejectionReason : '',
-          request: resolvedRequest,
-          department_setting: resolvedDeptSetting,
-          sender_gmail: resolvedDeptSetting?.sender_gmail,
-          gmail_app_password: resolvedDeptSetting?.gmail_app_password
-        }),
-        timeoutMs: 12000
-      }
-    );
-
-    if (res.isJson && !res.ok) {
+    if (res.isJson) {
       if (res.status === 428 || res.data?.code === 'DEPARTMENT_EMAIL_NOT_CONFIGURED') {
         const err = new Error(
           res.data?.message ||
             'يرجى إدخال البريد الإلكتروني للقسم ورمز التطبيق في خانة الإعدادات أولاً قبل إرسال الإشعارات'
         );
         err.isDeptEmailUnconfigured = true;
-        err.department = res.data?.department || resolvedRequest.department;
+        err.department = res.data?.department;
         throw err;
       }
-      throw new Error(res.data?.message || 'تعذر تحديث حالة الطلب أو إرسال البريد الإلكتروني.');
-    }
 
-    const updatedRecord = normalizeRecord({
-      ...resolvedRequest,
-      ...(res.isJson && res.data?.request ? res.data.request : {}),
-      status,
-      rejection_reason: status === 'rejected' ? rejectionReason : null
-    });
+      if (!res.ok || !res.data?.ok) {
+        throw new Error(res.data?.message || 'تعذر تحديث حالة الطلب.');
+      }
 
-    // 2. حفظ التحديث مباشرة وبشكل دائم في Firebase Realtime Database
-    await firebaseFetch(
-      `/requests/${encodeURIComponent(updatedRecord.id)}.json`,
-      'PUT',
-      updatedRecord
-    );
-
-    // 3. تحديث النسخة المحلية وسجل الإشعارات
-    const list = this.getLocalRequests();
-    const idx = list.findIndex(
-      r => r.id === updatedRecord.id || r.tracking_code === updatedRecord.tracking_code
-    );
-    if (idx !== -1) {
-      list[idx] = updatedRecord;
-    } else {
-      list.unshift(updatedRecord);
-    }
-    this.saveLocalRequests(list);
-
-    const notification =
-      (res.isJson && res.data?.notification) ||
-      buildGmailNotificationPayload(
-        updatedRecord,
-        status,
-        resolvedDeptSetting?.sender_gmail || 'pedagogy.dept@gmail.com'
+      const normalized = normalizeRecord(res.data.request);
+      const list = this.getLocalRequests();
+      const idx = list.findIndex(
+        r =>
+          r.id === requestId ||
+          r.tracking_code === requestId ||
+          r.id === normalized.id ||
+          r.tracking_code === normalized.tracking_code
       );
+      if (idx !== -1) {
+        list[idx] = normalized;
+      } else {
+        list.unshift(normalized);
+      }
+      this.saveLocalRequests(list);
+
+      if (res.data.notification) {
+        const notifs = this.getLocalNotifications();
+        this.saveLocalNotifications([res.data.notification, ...notifs]);
+      }
+      return { request: normalized, notification: res.data.notification };
+    }
+
+    const list = this.getLocalRequests();
+    const idx = list.findIndex(r => r.id === requestId || r.tracking_code === requestId);
+    if (idx === -1) throw new Error('الطلب غير موجود');
+
+    const target = list[idx];
+    const deptSettingsList = this.getLocalDepartmentSettings();
+    const deptConfig = deptSettingsList.find(d => d.department_name === target.department);
+
+    if (
+      (status === 'ready' || status === 'rejected') &&
+      (!deptConfig ||
+        !deptConfig.is_configured ||
+        !deptConfig.sender_gmail ||
+        !deptConfig.gmail_app_password)
+    ) {
+      const err = new Error(
+        'يرجى إدخال البريد الإلكتروني للقسم ورمز التطبيق في خانة الإعدادات أولاً قبل إرسال الإشعارات'
+      );
+      err.isDeptEmailUnconfigured = true;
+      err.department = target.department;
+      throw err;
+    }
+
+    target.status = status;
+
+    let notification = null;
+    if (status === 'ready') {
+      target.rejection_reason = null;
+      target.rejectionReason = '';
+      notification = buildGmailNotificationPayload(target, 'ready', deptConfig.sender_gmail);
+    } else if (status === 'rejected') {
+      target.rejection_reason = rejectionReason;
+      target.rejectionReason = rejectionReason;
+      notification = buildGmailNotificationPayload(target, 'rejected', deptConfig.sender_gmail);
+    }
 
     if (notification) {
       const notifs = this.getLocalNotifications();
-      this.saveLocalNotifications([notification, ...notifs]);
-      firebaseFetch(
-        `/email_notifications/${encodeURIComponent(notification.id || generateClientUuid())}.json`,
-        'PUT',
-        notification
-      ).catch(() => {});
+      notifs.unshift(notification);
+      this.saveLocalNotifications(notifs);
     }
 
-    return { request: updatedRecord, notification };
+    this.saveLocalRequests(list);
+    return { request: target, notification };
   },
 
   async fetchNotifications(departmentFilter = null) {
-    const fbRes = await firebaseFetch('/email_notifications.json', 'GET');
-    if (fbRes.ok && fbRes.data) {
-      let list = firebaseNodeToArray(fbRes.data);
-      list.sort(
-        (a, b) => new Date(b.sentAt || b.sent_at || 0) - new Date(a.sentAt || a.sent_at || 0)
-      );
-      this.saveLocalNotifications(list);
-      if (departmentFilter && departmentFilter !== 'all') {
-        return list.filter(n => n.department === departmentFilter);
-      }
-      return list;
-    }
-
-    const res = await safeApiFetch('/api/notifications', { timeoutMs: 3500 });
+    const res = await safeApiFetch('/api/notifications');
     let list = [];
     if (res.isJson && res.ok && Array.isArray(res.data?.notifications)) {
       this.saveLocalNotifications(res.data.notifications);

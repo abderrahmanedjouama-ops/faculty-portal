@@ -1,46 +1,49 @@
 /**
  * منطق صفحة تسجيل الدخول (/login)
- * يتضمن التحقق الفوري من بيانات اعتماد الأقسام الخمسة (Client-Side Verification)
- * وحفظ الجلسة في sessionStorage و localStorage والتوجيه الفوري إلى /admin/[dept].
+ * البوابة الرقمية لكلية العلوم والتكنولوجيا
  */
 
 const DEPARTMENT_CREDENTIALS = {
   automatique: {
-    passwords: ['auto2026'],
     slug: 'automatique',
+    username: 'automatique',
+    password: 'auto2026',
     name: 'قسم الآلية والإلكترونيك'
   },
   electrique: {
-    passwords: ['elec2026'],
     slug: 'electrique',
+    username: 'electrique',
+    password: 'elec2026',
     name: 'قسم الهندسة الكهربائية'
   },
   'tronc-commun': {
-    passwords: ['tc2026', 'tronc2026'],
     slug: 'tronc-commun',
+    username: 'tronc-commun',
+    password: 'tronc2026',
     name: 'قسم جذع مشترك (خاص بالسنة الأولى)'
   },
   procedes: {
-    passwords: ['proc2026'],
     slug: 'procedes',
+    username: 'procedes',
+    password: 'proc2026',
     name: 'قسم هندسة الطرائق'
   },
   mecanique: {
-    passwords: ['meca2026'],
     slug: 'mecanique',
+    username: 'mecanique',
+    password: 'meca2026',
     name: 'قسم الميكانيك'
   }
 };
 
-function showLoginError(msg) {
+function showLoginError(msg = 'اسم المستخدم أو كلمة المرور غير صحيحة') {
   const box = document.getElementById('loginErrorAlert');
   const text = document.getElementById('loginErrorText');
-  const message = msg || 'اسم المستخدم أو كلمة المرور غير صحيحة';
-  if (text) {
-    text.textContent = message;
-  }
-  if (box) {
+  if (box && text) {
+    text.textContent = msg;
     box.style.display = 'flex';
+  } else {
+    alert(msg);
   }
 }
 
@@ -51,140 +54,143 @@ function hideLoginError() {
   }
 }
 
-function findDepartmentCredential(identifier, password) {
-  const cleanId = String(identifier || '').trim().toLowerCase();
-  const cleanPass = String(password || '').trim();
-  if (!cleanId || !cleanPass) return null;
-
-  for (const [slug, dept] of Object.entries(DEPARTMENT_CREDENTIALS)) {
-    if (slug === cleanId || dept.name.toLowerCase() === cleanId) {
-      if (dept.passwords.includes(cleanPass)) {
-        return dept;
-      }
-    }
-  }
-  return null;
-}
-
-/**
- * معالج تسجيل الدخول الرئيسي المتاح عالمياً (Global handleLogin)
- */
-function handleLogin(e) {
-  if (e && typeof e.preventDefault === 'function') {
-    e.preventDefault();
-  }
+function handleLoginSubmit(e) {
+  e.preventDefault();
   hideLoginError();
 
   const usernameInput =
+    document.getElementById('loginUsernameInput') ||
     document.getElementById('username') ||
-    document.getElementById('loginUsernameInput');
-  const passwordInput =
-    document.getElementById('password') ||
-    document.getElementById('loginPasswordInput');
-  const submitBtn = document.getElementById('loginSubmitBtn');
+    document.querySelector('input[name="username"]');
 
-  const identifier = usernameInput ? usernameInput.value.trim() : '';
+  const passwordInput =
+    document.getElementById('loginPasswordInput') ||
+    document.getElementById('password') ||
+    document.querySelector('input[name="password"]');
+
+  const username = usernameInput ? usernameInput.value.trim() : '';
   const password = passwordInput ? passwordInput.value.trim() : '';
 
-  if (!identifier || !password) {
-    showLoginError('اسم المستخدم أو كلمة المرور غير صحيحة');
-    if (!identifier && usernameInput) usernameInput.focus();
-    else if (!password && passwordInput) passwordInput.focus();
-    return false;
+  if (!username) {
+    showLoginError('يرجى إدخال اسم المستخدم.');
+    if (usernameInput) usernameInput.focus();
+    return;
   }
 
-  // 1. التحقق الفوري المباشر عبر خريطة بيانات الاعتماد المحلية للأقسام الخمسة
-  const matchedDept = findDepartmentCredential(identifier, password);
-  if (matchedDept) {
-    const deptSlug = matchedDept.slug;
-
-    // حفظ الجلسة في sessionStorage
-    try {
-      sessionStorage.setItem('currentDepartment', deptSlug);
-      sessionStorage.setItem('isAuthenticated', 'true');
-    } catch (err) {
-      console.warn('sessionStorage error:', err);
-    }
-
-    // حفظ الجلسة أيضاً في DataRepository / localStorage لدعم صفحات الإدارة
-    const sessionObj = {
-      slug: deptSlug,
-      username: deptSlug,
-      department_name: matchedDept.name,
-      redirect_url: `/admin/${deptSlug}`,
-      logged_in_at: new Date().toISOString()
-    };
-
-    try {
-      if (typeof DataRepository !== 'undefined' && DataRepository.saveLocalAuthSession) {
-        DataRepository.saveLocalAuthSession(sessionObj);
-      }
-    } catch (err) {
-      console.warn('localStorage error:', err);
-    }
-
-    // إرسال طلب تسجيل الجلسة في الخادم في الخلفية دون تعطيل المتصفح
-    if (typeof fetch === 'function') {
-      fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          identifier: deptSlug,
-          username: deptSlug,
-          password
-        })
-      }).catch(() => {});
-    }
-
-    // التوجيه الفوري إلى لوحة تحكم القسم
-    window.location.replace('/admin/' + deptSlug);
-    return false;
+  if (!password) {
+    showLoginError('يرجى إدخال كلمة المرور.');
+    if (passwordInput) passwordInput.focus();
+    return;
   }
 
-  // 2. فحص إضافي عبر DataRepository في حال تم تحديث كلمة المرور سحابياً
-  if (typeof DataRepository !== 'undefined' && DataRepository.loginDepartment) {
-    const originalBtnHtml = submitBtn ? submitBtn.innerHTML : '';
-    if (submitBtn) {
-      submitBtn.disabled = true;
-      submitBtn.innerHTML = '<span>جاري التحقق...</span>';
-    }
+  // البحث عن القسم والتحقق من بيانات الدخول
+  let matchedDept = null;
+  const lowerUser = username.toLowerCase();
 
-    DataRepository.loginDepartment({ identifier, password })
-      .then(session => {
-        sessionStorage.setItem('currentDepartment', session.slug);
-        sessionStorage.setItem('isAuthenticated', 'true');
-        window.location.replace('/admin/' + session.slug);
-      })
-      .catch(() => {
-        showLoginError('اسم المستخدم أو كلمة المرور غير صحيحة');
-        if (submitBtn) {
-          submitBtn.disabled = false;
-          submitBtn.innerHTML = originalBtnHtml;
+  // 1. التحقق من التخصيصات المخزنة في localStorage إن وُجدت
+  try {
+    const rawSettings = localStorage.getItem('uni_portal_dept_settings_v3');
+    if (rawSettings) {
+      const list = JSON.parse(rawSettings);
+      if (Array.isArray(list)) {
+        const found = list.find(
+          d =>
+            (d.slug && d.slug.toLowerCase() === lowerUser) ||
+            (d.username && d.username.toLowerCase() === lowerUser) ||
+            (d.department_name && d.department_name === username)
+        );
+        if (
+          found &&
+          (found.login_password === password || found.default_password === password)
+        ) {
+          matchedDept = {
+            slug: found.slug || lowerUser,
+            username: found.username || username,
+            department_name: found.department_name
+          };
         }
-      });
-    return false;
+      }
+    }
+  } catch {}
+
+  // 2. التحقق من الحسابات الافتراضية الرسمية للأقسام
+  if (!matchedDept) {
+    for (const key of Object.keys(DEPARTMENT_CREDENTIALS)) {
+      const dept = DEPARTMENT_CREDENTIALS[key];
+      if (
+        (dept.username.toLowerCase() === lowerUser || dept.slug.toLowerCase() === lowerUser) &&
+        dept.password === password
+      ) {
+        matchedDept = {
+          slug: dept.slug,
+          username: dept.username,
+          department_name: dept.name
+        };
+        break;
+      }
+    }
   }
 
-  // 3. فشل التحقق
-  showLoginError('اسم المستخدم أو كلمة المرور غير صحيحة');
-  return false;
+  // إذا كانت البيانات غير صحيحة نُظهر رسالة الخطأ بدون إعادة تحميل الصفحة
+  if (!matchedDept) {
+    showLoginError('اسم المستخدم أو كلمة المرور غير صحيحة');
+    return;
+  }
+
+  // في حال النجاح: حفظ الجلسة في sessionStorage و localStorage والتوجه للوحة التحكم
+  const deptSlug = matchedDept.slug;
+  const sessionData = {
+    slug: deptSlug,
+    username: matchedDept.username,
+    department_name: matchedDept.department_name,
+    redirect_url: '/admin/' + deptSlug,
+    logged_in_at: new Date().toISOString()
+  };
+
+  sessionStorage.setItem('dept_session', JSON.stringify(sessionData));
+  sessionStorage.setItem('uni_portal_dept_auth_session_v1', JSON.stringify(sessionData));
+  localStorage.setItem('uni_portal_dept_auth_session_v1', JSON.stringify(sessionData));
+
+  if (typeof DataRepository !== 'undefined' && DataRepository.saveLocalAuthSession) {
+    DataRepository.saveLocalAuthSession(sessionData);
+  }
+
+  // مزامنة الكوكي في الخلفية إذا كان الخادم المحلي قيد التشغيل
+  try {
+    fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ identifier: username, password })
+    }).catch(() => {});
+  } catch {}
+
+  // التحويل المباشر إلى لوحة تحكم القسم
+  window.location.href = '/admin/' + deptSlug;
 }
 
-// إتاحة الدالة عالمياً لنافذة المتصفح لتعمل مع onsubmit في وسم form
-window.handleLogin = handleLogin;
-
 function bindLoginEvents() {
-  const usernameInput =
-    document.getElementById('username') ||
-    document.getElementById('loginUsernameInput');
-  const passwordInput =
-    document.getElementById('password') ||
-    document.getElementById('loginPasswordInput');
-  const togglePassBtn = document.getElementById('toggleLoginPassBtn');
   const loginForm =
     document.getElementById('login-form') ||
-    document.getElementById('departmentLoginForm');
-  const submitBtn = document.getElementById('loginSubmitBtn');
+    document.getElementById('departmentLoginForm') ||
+    document.querySelector('form');
+
+  if (loginForm && !loginForm.__listenerAttached) {
+    loginForm.__listenerAttached = true;
+    loginForm.addEventListener('submit', handleLoginSubmit);
+  }
+
+  const usernameInput =
+    document.getElementById('loginUsernameInput') ||
+    document.getElementById('username') ||
+    document.querySelector('input[name="username"]');
+
+  const passwordInput =
+    document.getElementById('loginPasswordInput') ||
+    document.getElementById('password') ||
+    document.querySelector('input[name="password"]');
+
+  const togglePassBtn = document.getElementById('toggleLoginPassBtn');
 
   if (usernameInput) {
     usernameInput.addEventListener('input', hideLoginError);
@@ -195,84 +201,36 @@ function bindLoginEvents() {
   }
 
   if (togglePassBtn && passwordInput) {
-    togglePassBtn.addEventListener('click', e => {
-      e.preventDefault();
+    togglePassBtn.addEventListener('click', () => {
       const isHidden = passwordInput.type === 'password';
       passwordInput.type = isHidden ? 'text' : 'password';
       togglePassBtn.textContent = isHidden ? 'إخفاء' : 'إظهار';
     });
   }
 
-  if (loginForm) {
-    loginForm.addEventListener('submit', handleLogin);
-  }
-
-  if (submitBtn) {
-    submitBtn.addEventListener('click', handleLogin);
-  }
-}
-
-function initLoginPage() {
-  if (typeof DataRepository !== 'undefined') {
-    DataRepository.initLocalStore();
-  }
-
-  bindLoginEvents();
-
+  // تنظيف المعلمات في حال تم فتح الصفحة سابقاً عبر GET reload
   const urlParams = new URLSearchParams(window.location.search);
-  const redirectParam = urlParams.get('redirect');
-  const loggedOut = urlParams.get('logged_out');
-  const urlUsername = (urlParams.get('username') || '').trim();
-  const urlPassword = (urlParams.get('password') || '').trim();
-
-  // فحص بيانات الدخول إذا كانت ممررة في الرابط
-  if (urlUsername && urlPassword) {
-    const usernameInput =
-      document.getElementById('username') ||
-      document.getElementById('loginUsernameInput');
-    const passwordInput =
-      document.getElementById('password') ||
-      document.getElementById('loginPasswordInput');
-    if (usernameInput) usernameInput.value = urlUsername;
-    if (passwordInput) passwordInput.value = urlPassword;
-
-    window.history.replaceState({}, document.title, '/login');
-    handleLogin();
-    return;
-  }
-
-  if (redirectParam && !loggedOut) {
-    const notice = document.getElementById('loginRedirectNotice');
-    const noticeText = document.getElementById('loginRedirectNoticeText');
-    if (notice && noticeText) {
-      notice.style.display = 'flex';
-      noticeText.textContent = 'يرجى تسجيل الدخول للوصول إلى لوحة التحكم.';
+  const queryUser = urlParams.get('username');
+  const queryPass = urlParams.get('password');
+  if (queryUser && queryPass) {
+    if (usernameInput && !usernameInput.value) usernameInput.value = queryUser;
+    if (passwordInput && !passwordInput.value) passwordInput.value = queryPass;
+    if (window.history && window.history.replaceState) {
+      window.history.replaceState({}, document.title, window.location.pathname);
     }
   }
 
-  // إذا كانت هناك جلسة مسجلة مسبقاً وغير منتهية
-  if (!loggedOut) {
-    const sessAuth = sessionStorage.getItem('isAuthenticated');
-    const sessDept = sessionStorage.getItem('currentDepartment');
-    if (sessAuth === 'true' && sessDept) {
-      window.location.replace(`/admin/${sessDept}`);
-      return;
-    }
-
-    if (typeof DataRepository !== 'undefined') {
-      DataRepository.getAuthSession()
-        .then(activeSession => {
-          if (activeSession && activeSession.slug) {
-            window.location.replace(`/admin/${activeSession.slug}`);
-          }
-        })
-        .catch(() => {});
-    }
+  // تنظيف الجلسة القديمة في حال تسجيل الخروج
+  if (urlParams.get('logged_out')) {
+    sessionStorage.removeItem('dept_session');
+    sessionStorage.removeItem('uni_portal_dept_auth_session_v1');
+    localStorage.removeItem('uni_portal_dept_auth_session_v1');
   }
 }
+
+// ربط النموذج فوراً بمجرد تحميل الملف وبمجرد جاهزية DOM
+bindLoginEvents();
 
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', initLoginPage);
-} else {
-  initLoginPage();
+  document.addEventListener('DOMContentLoaded', bindLoginEvents);
 }
